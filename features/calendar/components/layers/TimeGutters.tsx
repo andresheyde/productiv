@@ -26,7 +26,7 @@ export default function TimeGutters() {
 }
 
 function hourToString(hour: number) {
-    if (hour === 0) {
+    if (hour === 0 || hour === 24) {
         return '12am';
     } else if (hour < 12) {
         return `${hour}am`

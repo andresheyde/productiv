@@ -6,6 +6,7 @@ export const TIME_GUTTER_WIDTH = 40;
 export const TIME_GUTTER_HEIGHT = 25;
 
 export const HOURS = 24;
+export const MINUTES = 60;
 
 export type Time = {
     hour: number,
@@ -13,15 +14,16 @@ export type Time = {
 }
 
 export function timeToY(hour: number, minute: number = 0, hourHeight = DEFAULT_HOUR_HEIGHT) {
-    return hour * hourHeight + (minute/60) * hourHeight
+    return hour * hourHeight + (minute/MINUTES) * hourHeight
 }
 
 export function yToTime(y: number, hourHeight = DEFAULT_HOUR_HEIGHT): Time {
-    if (hourHeight === 0) {
+    if (hourHeight <= 0) {
         throw new Error(`Invalid hourHeight: ${hourHeight}`)
     }
+    const clampedY = Math.min(Math.max(y, 0), DEFAULT_GRID_HEIGHT)
     return {
-        hour: y/hourHeight,
-        minute: 60*(y%hourHeight)/hourHeight,
+        hour: Math.floor(clampedY/hourHeight),
+        minute: Math.floor((clampedY%hourHeight)*MINUTES/hourHeight),
     }
 }
