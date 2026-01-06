@@ -15,6 +15,7 @@ export default function StickyHeader({ startDate, numDays, columnWidth }: Sticky
         backgroundColor: 'gray',
     }}>
         <View style={{
+            position: 'absolute',
             left: TIME_GUTTER_WIDTH,
             top: 0,
             height: STICKY_HEADER_HEIGHT,
