@@ -35,7 +35,6 @@ function hourToString(hour: number) {
     } else if (hour <= 23) {
         return `${hour - 12}pm`;
     } else {
-        console.log('Unrecognized hour');
-        return null;
+        throw new Error(`Invalid hour: ${hour}`);
     }
 }
