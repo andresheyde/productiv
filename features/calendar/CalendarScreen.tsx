@@ -5,7 +5,7 @@ import { TIME_GUTTER_WIDTH } from "./layout/calendarLayout";
 
 
 export default function CalendarScreen() {
-    const numDays = 5;
+    const numDays = 7;
     const columnWidth = (useWindowDimensions().width - TIME_GUTTER_WIDTH)/numDays;
 
   return (<>

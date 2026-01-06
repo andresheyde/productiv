@@ -10,24 +10,32 @@ export default function TimeGutters() {
         height: DEFAULT_GRID_HEIGHT,
         backgroundColor: 'gray'
     }}>
-        {Array.from({ length: HOURS - 1 }, (_, i) => {
+        {Array.from({ length: HOURS }, (_, i) => {
         return (<View key={i} style={{
             position: 'absolute',
             left: 0,
-            top: timeToY(i, 55),
+            top: timeToY(i),
             width: TIME_GUTTER_WIDTH,
             height: TIME_GUTTER_HEIGHT,
         }}>
             <Text style={{
                 textAlign: 'center'
-            }}>{hourToString(i+1)}</Text>
+            }}>{hourToString(i)}</Text>
         </View>)})}
     </View>)
 }
 
 function hourToString(hour: number) {
-    if (hour > 12) {
-        return `${hour - 12}pm`
+    if (hour === 0) {
+        return '12am';
+    } else if (hour < 12) {
+        return `${hour}am`
+    } else if (hour === 12) {
+        return '12pm';
+    } else if (hour <= 23) {
+        return `${hour - 12}pm`;
+    } else {
+        console.log('Unrecognized hour');
+        return null;
     }
-    return `${hour}am`
 }
