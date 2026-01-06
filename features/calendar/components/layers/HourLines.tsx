@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import { DEFAULT_HOUR_HEIGHT, HOURS, timeToY } from '../../layout/calendarLayout';
+import { HOURS, timeToY } from '../../layout/calendarLayout';
 
 export default function HourLines() {
     return Array.from({ length: HOURS - 1 }, (_, i) => {
@@ -10,7 +10,7 @@ export default function HourLines() {
                 position: "absolute",
                 left: 0,
                 right: 0,
-                top: timeToY(i+1, 0, DEFAULT_HOUR_HEIGHT),
+                top: timeToY(i+1),
                 height: 1,
                 backgroundColor: "white",
                 opacity: 1

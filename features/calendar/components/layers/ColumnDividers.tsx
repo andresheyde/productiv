@@ -1,4 +1,5 @@
 import { useWindowDimensions, View } from "react-native";
+import { TIME_GUTTER_WIDTH } from "../../layout/calendarLayout";
 
 type ColumnDividersProps = {
     numDays: number,
@@ -6,7 +7,7 @@ type ColumnDividersProps = {
 }
 
 export default function ColumnDividers({ numDays, columnWidth }: ColumnDividersProps) {
-    const totalWidth = useWindowDimensions().width;
+    const totalWidth = useWindowDimensions().width - TIME_GUTTER_WIDTH;
 
     return Array.from({ length: numDays - 1 }, (_, i) => {
         return (
@@ -14,7 +15,7 @@ export default function ColumnDividers({ numDays, columnWidth }: ColumnDividersP
                 position: "absolute",
                 top: 0,
                 bottom: 0,
-                left: (totalWidth/numDays)*(i+1),
+                left: TIME_GUTTER_WIDTH + (totalWidth/numDays)*(i+1),
                 width: 1,
                 backgroundColor: 'white',
                 opacity: 1,

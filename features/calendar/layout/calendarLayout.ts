@@ -1,7 +1,9 @@
 
 export const DEFAULT_HOUR_HEIGHT = 100;
 export const DEFAULT_GRID_HEIGHT = DEFAULT_HOUR_HEIGHT * 24;
-export const STICKY_HEADER_HEIGHT = 100;
+export const STICKY_HEADER_HEIGHT = 75;
+export const TIME_GUTTER_WIDTH = 40;
+export const TIME_GUTTER_HEIGHT = 25;
 
 export const HOURS = 24;
 

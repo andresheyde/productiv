@@ -2,6 +2,7 @@ import { View } from 'react-native';
 import { DEFAULT_GRID_HEIGHT } from '../layout/calendarLayout';
 import ColumnDividers from './layers/ColumnDividers';
 import HourLines from './layers/HourLines';
+import TimeGutters from './layers/TimeGutters';
 
 type GridCanvasProps = {
     numDays: number,
@@ -17,6 +18,7 @@ export default function GridCanvas({ numDays, columnWidth }: GridCanvasProps) {
         }}
       >
         <HourLines />
+        <TimeGutters />
         <ColumnDividers numDays={numDays} columnWidth={columnWidth} />
       </View>)
 }
