@@ -2,6 +2,7 @@ import { ScrollView, useWindowDimensions } from "react-native";
 import GridCanvas from "./components/GridCanvas";
 import StickyHeader from "./components/layers/StickyHeader";
 import { TIME_GUTTER_WIDTH } from "./layout/calendarLayout";
+import { CalendarEvent } from "./types";
 
 export default function CalendarScreen() {
     const numDays = 7;
@@ -10,7 +11,37 @@ export default function CalendarScreen() {
   return (<>
     <StickyHeader startDate={new Date()} numDays={numDays} columnWidth={columnWidth}/>
     <ScrollView style={{ flex: 1 }}>
-        <GridCanvas numDays={numDays} columnWidth={columnWidth}/>
+        <GridCanvas numDays={numDays} columnWidth={columnWidth} events={events}/>
     </ScrollView>
   </>);
 }
+
+const events: CalendarEvent[] = [
+  {
+    id: '1',
+    dayIndex: 0,
+    startMinute: 0,
+    endMinute: 60,
+    title: 'First event'
+  },
+  {
+    id: '2',
+    dayIndex: 1,
+    startMinute: 0,
+    endMinute: 60,
+    title: 'second event'
+  },
+  {
+    id: '3',
+    dayIndex: 3,
+    startMinute: 75,
+    endMinute: 1200,
+    title: 'third event'
+  },
+  { id: '4',
+    dayIndex: 6,
+    startMinute: 1380,
+    endMinute: 1440,
+    title: 'fourth event'
+  }
+]
