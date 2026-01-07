@@ -12,6 +12,10 @@ export function timeToY(hour: number, minute: number = 0, hourHeight = DEFAULT_H
     return hour * hourHeight + (minute/MINUTES) * hourHeight;
 }
 
+export function minutesToY(minutes: number, hourHeight = DEFAULT_HOUR_HEIGHT) {
+    return minutes*hourHeight/60;
+}
+
 export function yToMinutes(y: number, hourHeight = DEFAULT_HOUR_HEIGHT) {
     if (hourHeight <= 0) {
         throw new Error(`Invalid hourHeight: ${hourHeight}`);
