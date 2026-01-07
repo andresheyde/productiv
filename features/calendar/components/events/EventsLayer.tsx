@@ -1,6 +1,7 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { TIME_GUTTER_WIDTH, minutesToY } from '../../layout/calendarLayout';
 import { CalendarEvent } from "../../types";
+import EventBlock from './EventBlock';
 
 type EventsLayerProps = {
     events: CalendarEvent[],
@@ -21,15 +22,9 @@ export default function EventsLayer({ events, numDays, columnWidth }: EventsLaye
                 width: columnWidth,
                 top: minutesToY(event.startMinute),
                 height: minutesToY(eventLengthMinutes),
-                backgroundColor: 'blue',
-                borderWidth: 1,
-                borderColor: 'black'
             }}>
-                <Text style={{
-                    textAlign: 'left',
-                    textAlignVertical: 'top',
-                }}>{event.title}</Text>
-                </View>)
+                <EventBlock event={event}/>
+            </View>)
         })
     )
 }

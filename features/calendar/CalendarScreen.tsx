@@ -1,6 +1,6 @@
 import { ScrollView, useWindowDimensions } from "react-native";
-import GridCanvas from "./components/GridCanvas";
-import StickyHeader from "./components/layers/StickyHeader";
+import GridCanvas from "./components/grid/GridCanvas";
+import StickyHeader from "./components/header/StickyHeader";
 import { TIME_GUTTER_WIDTH } from "./layout/calendarLayout";
 import { CalendarEvent } from "./types";
 

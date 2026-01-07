@@ -1,10 +1,10 @@
 import { View } from 'react-native';
-import { DEFAULT_GRID_HEIGHT } from '../layout/calendarLayout';
-import { CalendarEvent } from '../types';
-import ColumnDividers from './layers/ColumnDividers';
-import EventsLayer from './layers/EventsLayer';
-import HourLines from './layers/HourLines';
-import TimeGutters from './layers/TimeGutters';
+import { DEFAULT_GRID_HEIGHT } from '../../layout/calendarLayout';
+import { CalendarEvent } from '../../types';
+import EventsLayer from '../events/EventsLayer';
+import ColumnDividers from './ColumnDividers';
+import HourLines from './HourLines';
+import TimeGutters from './TimeGutters';
 
 type GridCanvasProps = {
     numDays: number,
