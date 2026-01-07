@@ -11,7 +11,7 @@ type EventsLayerProps = {
 export default function EventsLayer({ events, numDays, columnWidth }: EventsLayerProps) {
     return (
         events.filter(event => {
-            return event.dayIndex >= 0 && event.dayIndex < numDays && event.startMinute > 0 && event.startMinute < event.endMinute && event.endMinute <= 1440;
+            return event.dayIndex >= 0 && event.dayIndex < numDays && event.startMinute >= 0 && event.startMinute < event.endMinute && event.endMinute <= 1440;
         }).map(event => {
             const eventLengthMinutes = event.endMinute - event.startMinute
 
