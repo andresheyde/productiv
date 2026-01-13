@@ -20,12 +20,12 @@ export default function CalendarScreen() {
   </>);
 
   function onEventBlockPress(event: CalendarEvent) {
-    console.log(`EventBlockPress logged: event.id=${event.id}`);
+    // console.log(`EventBlockPress logged: event.id=${event.id}`);
     setSelectedEventId(event.id);
   }
 
   function onEventsLayerEmptyPress() {
-    console.log(`EventsLayerEmptyPress logged`);
+    // console.log(`EventsLayerEmptyPress logged`);
     setSelectedEventId('');
   }
 }
