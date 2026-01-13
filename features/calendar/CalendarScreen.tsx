@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ScrollView, useWindowDimensions } from "react-native";
+import EventEditorPopup from "./components/events/EventEditorPopUp";
 import GridCanvas from "./components/grid/GridCanvas";
 import StickyHeader from "./components/header/StickyHeader";
 import { TIME_GUTTER_WIDTH } from "./layout/calendarLayout";
@@ -8,25 +9,26 @@ import { CalendarEvent } from "./types";
 export default function CalendarScreen() {
     const numDays = 7;
     const columnWidth = (useWindowDimensions().width - TIME_GUTTER_WIDTH)/numDays;
-    const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+    const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
   return (<>
     <StickyHeader startDate={new Date()} numDays={numDays} columnWidth={columnWidth}/>
     <ScrollView style={{ flex: 1 }}>
-        <GridCanvas numDays={numDays} columnWidth={columnWidth} events={events} selectedEventId={selectedEventId}
+        <GridCanvas numDays={numDays} columnWidth={columnWidth} events={events} selectedEvent={selectedEvent}
           onEventBlockPress={onEventBlockPress} onEventsLayerEmptyPress={onEventsLayerEmptyPress}
         />
     </ScrollView>
+    {selectedEvent && <EventEditorPopup selectedEvent={selectedEvent} />}
   </>);
 
   function onEventBlockPress(event: CalendarEvent) {
     // console.log(`EventBlockPress logged: event.id=${event.id}`);
-    setSelectedEventId(event.id);
+    setSelectedEvent(event);
   }
 
   function onEventsLayerEmptyPress() {
     // console.log(`EventsLayerEmptyPress logged`);
-    setSelectedEventId(null);
+    setSelectedEvent(null);
   }
 }
 

@@ -10,12 +10,12 @@ type GridCanvasProps = {
     numDays: number,
     columnWidth: number,
     events: CalendarEvent[],
-    selectedEventId: string | null,
+    selectedEvent: CalendarEvent | null,
     onEventBlockPress: (arg0: CalendarEvent) => void,
     onEventsLayerEmptyPress: () => void
 }
 
-export default function GridCanvas({ numDays, columnWidth, events, selectedEventId, onEventBlockPress, onEventsLayerEmptyPress }: GridCanvasProps) {
+export default function GridCanvas({ numDays, columnWidth, events, selectedEvent, onEventBlockPress, onEventsLayerEmptyPress }: GridCanvasProps) {
     return (<View
         style={{
           position: "relative",
@@ -26,7 +26,7 @@ export default function GridCanvas({ numDays, columnWidth, events, selectedEvent
         <HourLines />
         <TimeGutters />
         <ColumnDividers numDays={numDays} columnWidth={columnWidth} />
-        <EventsLayer events={events} numDays={numDays} columnWidth={columnWidth} selectedEventId={selectedEventId}
+        <EventsLayer events={events} numDays={numDays} columnWidth={columnWidth} selectedEvent={selectedEvent}
           onEventBlockPress={onEventBlockPress} onEventsLayerEmptyPress={onEventsLayerEmptyPress}
         />
       </View>)
