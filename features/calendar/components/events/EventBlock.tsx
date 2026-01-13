@@ -3,7 +3,7 @@ import { CalendarEvent } from "../../types";
 
 type EventBlockProps = {
     event: CalendarEvent,
-    selectedEventId: string,
+    selectedEventId: string | null,
     onEventBlockPress: (arg0: CalendarEvent) => void,
 }
 

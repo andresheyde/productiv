@@ -8,7 +8,7 @@ import { CalendarEvent } from "./types";
 export default function CalendarScreen() {
     const numDays = 7;
     const columnWidth = (useWindowDimensions().width - TIME_GUTTER_WIDTH)/numDays;
-    const [selectedEventId, setSelectedEventId] = useState('');
+    const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   return (<>
     <StickyHeader startDate={new Date()} numDays={numDays} columnWidth={columnWidth}/>
@@ -26,7 +26,7 @@ export default function CalendarScreen() {
 
   function onEventsLayerEmptyPress() {
     // console.log(`EventsLayerEmptyPress logged`);
-    setSelectedEventId('');
+    setSelectedEventId(null);
   }
 }
 

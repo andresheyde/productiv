@@ -6,6 +6,7 @@ export default function HourLines() {
           return (
             <View
               key={i}
+              pointerEvents='none'
               style={{
                 position: "absolute",
                 left: TIME_GUTTER_WIDTH,

@@ -6,5 +6,4 @@ export type CalendarEvent = {
     startMinute: number,
     endMinute: number,
     title?: string,
-    selected?: boolean,
 }

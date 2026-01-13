@@ -9,7 +9,7 @@ type ColumnDividersProps = {
 export default function ColumnDividers({ numDays, columnWidth }: ColumnDividersProps) {
     return Array.from({ length: numDays - 1 }, (_, i) => {
         return (
-            <View key={i} style={{
+            <View key={i} pointerEvents="none" style={{
                 position: "absolute",
                 top: 0,
                 bottom: 0,

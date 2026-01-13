@@ -10,7 +10,7 @@ type GridCanvasProps = {
     numDays: number,
     columnWidth: number,
     events: CalendarEvent[],
-    selectedEventId: string,
+    selectedEventId: string | null,
     onEventBlockPress: (arg0: CalendarEvent) => void,
     onEventsLayerEmptyPress: () => void
 }
