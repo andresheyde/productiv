@@ -1,15 +1,15 @@
 import CalendarScreen from "@/features/calendar/CalendarScreen";
-import { View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 export default function Index() {
   return (
-    <View
+    <GestureHandlerRootView
       style={{
         flex: 1,
         backgroundColor: 'blue'
       }}
     >
       <CalendarScreen />
-    </View>
+    </GestureHandlerRootView>
   );
 }
