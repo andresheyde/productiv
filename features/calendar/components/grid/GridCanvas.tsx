@@ -9,10 +9,13 @@ import TimeGutters from './TimeGutters';
 type GridCanvasProps = {
     numDays: number,
     columnWidth: number,
-    events: CalendarEvent[]
+    events: CalendarEvent[],
+    selectedEventId: string,
+    onEventBlockPress: (arg0: CalendarEvent) => void,
+    onEventsLayerEmptyPress: () => void
 }
 
-export default function GridCanvas({ numDays, columnWidth, events }: GridCanvasProps) {
+export default function GridCanvas({ numDays, columnWidth, events, selectedEventId, onEventBlockPress, onEventsLayerEmptyPress }: GridCanvasProps) {
     return (<View
         style={{
           position: "relative",
@@ -23,6 +26,8 @@ export default function GridCanvas({ numDays, columnWidth, events }: GridCanvasP
         <HourLines />
         <TimeGutters />
         <ColumnDividers numDays={numDays} columnWidth={columnWidth} />
-        <EventsLayer events={events} numDays={numDays} columnWidth={columnWidth}/>
+        <EventsLayer events={events} numDays={numDays} columnWidth={columnWidth} selectedEventId={selectedEventId}
+          onEventBlockPress={onEventBlockPress} onEventsLayerEmptyPress={onEventsLayerEmptyPress}
+        />
       </View>)
 }

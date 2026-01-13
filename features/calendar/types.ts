@@ -5,5 +5,6 @@ export type CalendarEvent = {
     dayIndex: number,
     startMinute: number,
     endMinute: number,
-    title?: string
+    title?: string,
+    selected?: boolean,
 }
