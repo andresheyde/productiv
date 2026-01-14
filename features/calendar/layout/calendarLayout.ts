@@ -29,6 +29,6 @@ export function xToDayIndex(x: number, numDays: number, columnWidth: number) {
     if (columnWidth === 0) {
         throw new Error(`Invalid columnSize: ${columnWidth}`);
     }
-    const roundedX = Math.min(Math.max(x, 0), columnWidth * numDays);
+    const roundedX = Math.min(Math.max(x, 0), columnWidth * (numDays - 1));
     return Math.floor(roundedX/columnWidth);
 }

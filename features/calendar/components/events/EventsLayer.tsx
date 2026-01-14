@@ -18,7 +18,7 @@ export default function EventsLayer({ events, numDays, columnWidth, selectedEven
     onEventsLayerLongPress }: EventsLayerProps) {
     const gesture = Gesture.Race(
         Gesture.Tap().runOnJS(true).onEnd(onEventsLayerEmptyPress),
-        Gesture.LongPress().runOnJS(true).onFinalize((press) => {onEventsLayerLongPress(press.x, press.y)})
+        Gesture.LongPress().runOnJS(true).onEnd((press) => {onEventsLayerLongPress(press.x, press.y)})
     )
 
     return (<View style={{
