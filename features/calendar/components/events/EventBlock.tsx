@@ -9,7 +9,7 @@ type EventBlockProps = {
 }
 
 export default function EventBlock({ event, selectedEvent, onEventBlockPress }: EventBlockProps) {
-    return (<GestureDetector gesture={Gesture.Tap().onEnd(() => onEventBlockPress(event))}>
+    return (<GestureDetector gesture={Gesture.Tap().runOnJS(true).onEnd(() => onEventBlockPress(event))}>
         <View style={{
             flex: 1,
             backgroundColor: selectedEvent && event.id === selectedEvent.id ? 'blue' : 'white',

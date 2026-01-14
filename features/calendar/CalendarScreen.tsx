@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ScrollView, useWindowDimensions } from "react-native";
-import EventEditorPopup from "./components/events/EventEditorPopUp";
+import EventEditorPopup from "./components/events/EventEditorPopup";
 import GridCanvas from "./components/grid/GridCanvas";
 import StickyHeader from "./components/header/StickyHeader";
 import { TIME_GUTTER_WIDTH } from "./layout/calendarLayout";

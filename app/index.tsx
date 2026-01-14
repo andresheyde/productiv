@@ -6,7 +6,6 @@ export default function Index() {
     <GestureHandlerRootView
       style={{
         flex: 1,
-        backgroundColor: 'blue'
       }}
     >
       <CalendarScreen />

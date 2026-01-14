@@ -21,7 +21,7 @@ export default function EventsLayer({ events, numDays, columnWidth, selectedEven
         top: 0,
         bottom: 0,
     }}>
-        <GestureDetector gesture={Gesture.Tap().onEnd(onEventsLayerEmptyPress)}>
+        <GestureDetector gesture={Gesture.Tap().runOnJS(true).onEnd(onEventsLayerEmptyPress)}>
             <View style={{
                 position: 'absolute',
                 left: 0,
