@@ -11,9 +11,16 @@ type EventsLayerProps = {
     selectedEvent: CalendarEvent | null,
     onEventBlockPress: (arg0: CalendarEvent) => void,
     onEventsLayerEmptyPress: () => void,
+    onEventsLayerLongPress: (arg0: number, arg1: number) => void,
 }
 
-export default function EventsLayer({ events, numDays, columnWidth, selectedEvent, onEventBlockPress, onEventsLayerEmptyPress }: EventsLayerProps) {
+export default function EventsLayer({ events, numDays, columnWidth, selectedEvent, onEventBlockPress, onEventsLayerEmptyPress,
+    onEventsLayerLongPress }: EventsLayerProps) {
+    const gesture = Gesture.Race(
+        Gesture.Tap().runOnJS(true).onEnd(onEventsLayerEmptyPress),
+        Gesture.LongPress().runOnJS(true).onFinalize((press) => {onEventsLayerLongPress(press.x, press.y)})
+    )
+
     return (<View style={{
         position: 'absolute',
         left: TIME_GUTTER_WIDTH,
@@ -21,7 +28,7 @@ export default function EventsLayer({ events, numDays, columnWidth, selectedEven
         top: 0,
         bottom: 0,
     }}>
-        <GestureDetector gesture={Gesture.Tap().runOnJS(true).onEnd(onEventsLayerEmptyPress)}>
+        <GestureDetector gesture={gesture}>
             <View style={{
                 position: 'absolute',
                 left: 0,
