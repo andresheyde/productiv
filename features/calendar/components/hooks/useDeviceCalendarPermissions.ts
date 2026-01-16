@@ -30,14 +30,16 @@ export default function useDeviceCalendarPermissions() {
     const requestPermissions = useCallback(() => {
         requestDeviceCalendarPermissions().then(result => {
             applyPermissions(result)
+            return permissions;
         })
-    }, [])
+    }, [permissions])
 
     const refreshPermissions = useCallback(() => {
         getDeviceCalendarPermissions().then(result => {
             applyPermissions(result)
+            return permissions;
         })
-    }, [])
+    }, [permissions])
     
     return { permissions, requestPermissions, refreshPermissions };
 }
