@@ -7,11 +7,10 @@ import useDeviceCalendarPermissions from "./useDeviceCalendarPermissions";
 export default function useDeviceCalendars() {
     const [calendars, setCalendars] = useState<Calendar.Calendar[]>([]);
     const isMounted = useRef(true);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState<Error | null>(null);
     const { permissions } = useDeviceCalendarPermissions();
     const blocked = !permissions.granted;
-    const status = permissions.status;
 
     useEffect(() => {
         return () => {
@@ -20,28 +19,29 @@ export default function useDeviceCalendars() {
     }, [])
 
     const refresh = useCallback(() => {
+        if (blocked) {
+            return;
+        }
         setLoading(true);
         setError(null);
-        if (permissions.granted) {
-            getDeviceCalendars().then(result => {
-                if(isMounted.current) {
-                    setLoading(false);
-                    setCalendars(result);
-                }
-            }).catch(reason => {
-                if (isMounted.current) {
-                    setLoading(false);
-                    setError(reason instanceof Error ? reason : new Error(String(reason)));
-                }
-            })
-        }
-    }, [permissions.granted])
+        getDeviceCalendars().then(result => {
+            if(isMounted.current) {
+                setLoading(false);
+                setCalendars(result);
+            }
+        }).catch(reason => {
+            if (isMounted.current) {
+                setLoading(false);
+                setError(reason instanceof Error ? reason : new Error(String(reason)));
+            }
+        })
+    }, [blocked])
 
     useEffect(() => {
         refresh()
-    }, [permissions.granted, refresh])
+    }, [blocked, refresh])
 
     
 
-    return { calendars, loading, error, blocked, status, refresh }
+    return { calendars, loading, error, blocked, refresh }
 }
