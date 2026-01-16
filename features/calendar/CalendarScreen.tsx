@@ -13,10 +13,12 @@ export default function CalendarScreen() {
   const columnWidth = (useWindowDimensions().width - TIME_GUTTER_WIDTH)/numDays;
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [events, setEvents] = useState(testEvents)
+  const today = new Date();
+  const [leftDate, setLeftDate] = useState(today);
   const { calendars, loading, error, blocked, refresh } = useDeviceCalendars();
 
   return (<>
-    <StickyHeader startDate={new Date()} numDays={numDays} columnWidth={columnWidth}/>
+    <StickyHeader today={today} startDate={new Date()} numDays={numDays} columnWidth={columnWidth}/>
     <ScrollView style={{ flex: 1 }}>
         <GridCanvas numDays={numDays} columnWidth={columnWidth} events={events} selectedEvent={selectedEvent}
           onEventBlockPress={onEventBlockPress} onEventsLayerEmptyPress={onEventsLayerEmptyPress} onEventsLayerLongPress={onEventsLayerLongPress}

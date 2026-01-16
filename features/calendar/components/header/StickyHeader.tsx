@@ -1,13 +1,16 @@
+import { addDays } from 'date-fns'
 import { View } from 'react-native'
 import { STICKY_HEADER_HEIGHT, TIME_GUTTER_WIDTH } from '../../layout/calendarLayout'
+import StickyHeaderColumn from './StickyHeaderColumn'
 
 type StickyHeaderProps = {
+    today: Date,
     startDate: Date,
     numDays: number,
     columnWidth: number,
 }
 
-export default function StickyHeader({ startDate, numDays, columnWidth }: StickyHeaderProps) {
+export default function StickyHeader({ today, startDate, numDays, columnWidth }: StickyHeaderProps) {
     return <View style={{
         height: STICKY_HEADER_HEIGHT,
         borderBottomWidth: 2,
@@ -16,22 +19,15 @@ export default function StickyHeader({ startDate, numDays, columnWidth }: Sticky
     }}>
         <View style={{
             position: 'absolute',
-            left: TIME_GUTTER_WIDTH,
+            left: 0,
             top: 0,
             height: STICKY_HEADER_HEIGHT,
-            width: 1,
-            backgroundColor: 'red'
+            width: TIME_GUTTER_WIDTH,
+            backgroundColor: 'grey'
         }} />
-        {Array.from( {length: numDays - 1}, (_, i) => {
-            return (<View key={i} style={{
-                position: 'absolute',
-                top: 0,
-                left: TIME_GUTTER_WIDTH + columnWidth*(i+1),
-                width: 1,
-                height: STICKY_HEADER_HEIGHT,
-                backgroundColor: 'red',
-                opacity: 1,
-            }}/>)
+        {Array.from( {length: numDays}, (_, i) => {
+            const date = addDays(startDate, i);
+            return (<StickyHeaderColumn key={date.toString()} today={today} date={date} columnWidth={columnWidth} dayIndex={i} />)
         })}
     </View>
 }
