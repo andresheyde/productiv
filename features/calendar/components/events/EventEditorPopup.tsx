@@ -3,17 +3,25 @@ import { EVENT_EDITOR_POPUP_HEIGHT } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
 
 type EventEditorPopupProps = {
-    selectedEvent: CalendarEvent;
-}
+  selectedEvent: CalendarEvent;
+};
 
-export default function EventEditorPopup({ selectedEvent }: EventEditorPopupProps) {
-    return (<View style={{
+export default function EventEditorPopup({
+  selectedEvent,
+}: EventEditorPopupProps) {
+  return (
+    <View
+      style={{
         bottom: 0,
         height: EVENT_EDITOR_POPUP_HEIGHT,
         borderTopWidth: 2,
-        borderTopColor: 'white',
-        backgroundColor: 'gray',
-    }}>
-        <Text >{selectedEvent.title ? selectedEvent.title : 'Untitled Event'}</Text>
-    </View>)
+        borderTopColor: "white",
+        backgroundColor: "gray",
+      }}
+    >
+      <Text>
+        {selectedEvent.title ? selectedEvent.title : "Untitled Event"}
+      </Text>
+    </View>
+  );
 }

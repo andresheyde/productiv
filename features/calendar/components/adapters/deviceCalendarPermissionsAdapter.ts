@@ -1,9 +1,9 @@
-import * as Calendar from 'expo-calendar';
+import * as Calendar from "expo-calendar";
 
 export async function requestDeviceCalendarPermissions() {
-    return await Calendar.requestCalendarPermissionsAsync();
+  return await Calendar.requestCalendarPermissionsAsync();
 }
 
 export async function getDeviceCalendarPermissions() {
-    return await Calendar.getCalendarPermissionsAsync();
+  return await Calendar.getCalendarPermissionsAsync();
 }

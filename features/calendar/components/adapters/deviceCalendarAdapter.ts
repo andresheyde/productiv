@@ -1,9 +1,9 @@
-import * as Calendar from 'expo-calendar';
+import * as Calendar from "expo-calendar";
 
 export async function getDeviceCalendars() {
-    return await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+  return await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
 }
 
 export async function getDefaultDeviceCalendar() {
-    return await Calendar.getDefaultCalendarAsync();
+  return await Calendar.getDefaultCalendarAsync();
 }
