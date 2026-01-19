@@ -1,6 +1,12 @@
+import { addDays, subDays } from "date-fns";
 import * as Crypto from "expo-crypto";
 import { useState } from "react";
-import { ScrollView, useWindowDimensions } from "react-native";
+import { ScrollView, useWindowDimensions, View } from "react-native";
+import {
+  Gesture,
+  GestureDetector,
+  MouseButton,
+} from "react-native-gesture-handler";
 import EventEditorPopup from "./components/events/EventEditorPopup";
 import GridCanvas from "./components/grid/GridCanvas";
 import StickyHeader from "./components/header/StickyHeader";
@@ -23,26 +29,38 @@ export default function CalendarScreen() {
   const today = new Date();
   const [leftDate, setLeftDate] = useState(today);
   const { calendars, loading, error, blocked, refresh } = useDeviceCalendars();
+  const gesture = Gesture.Exclusive(
+    Gesture.Fling()
+      .direction(MouseButton.LEFT)
+      .onEnd(() => onFling(MouseButton.LEFT)),
+    Gesture.Fling()
+      .direction(MouseButton.RIGHT)
+      .onEnd(() => onFling(MouseButton.RIGHT)),
+  );
 
   return (
     <>
-      <StickyHeader
-        today={today}
-        startDate={new Date()}
-        numDays={numDays}
-        columnWidth={columnWidth}
-      />
-      <ScrollView style={{ flex: 1 }}>
-        <GridCanvas
-          numDays={numDays}
-          columnWidth={columnWidth}
-          events={events}
-          selectedEvent={selectedEvent}
-          onEventBlockPress={onEventBlockPress}
-          onEventsLayerEmptyPress={onEventsLayerEmptyPress}
-          onEventsLayerLongPress={onEventsLayerLongPress}
-        />
-      </ScrollView>
+      <GestureDetector gesture={gesture}>
+        <View style={{ flex: 1 }}>
+          <StickyHeader
+            today={today}
+            startDate={leftDate}
+            numDays={numDays}
+            columnWidth={columnWidth}
+          />
+          <ScrollView style={{ flex: 1 }}>
+            <GridCanvas
+              numDays={numDays}
+              columnWidth={columnWidth}
+              events={events}
+              selectedEvent={selectedEvent}
+              onEventBlockPress={onEventBlockPress}
+              onEventsLayerEmptyPress={onEventsLayerEmptyPress}
+              onEventsLayerLongPress={onEventsLayerLongPress}
+            />
+          </ScrollView>
+        </View>
+      </GestureDetector>
       {selectedEvent && <EventEditorPopup selectedEvent={selectedEvent} />}
     </>
   );
@@ -53,6 +71,18 @@ export default function CalendarScreen() {
 
   function onEventsLayerEmptyPress() {
     setSelectedEvent(null);
+  }
+
+  function onFling(direction: MouseButton) {
+    if (direction === MouseButton.LEFT) {
+      setLeftDate(subDays(leftDate, numDays));
+      return;
+    }
+    if (direction === MouseButton.RIGHT) {
+      setLeftDate(addDays(leftDate, numDays));
+      return;
+    }
+    throw new Error(`Unrecognized fling direction: ${direction}`);
   }
 
   function onEventsLayerLongPress(x: number, y: number) {

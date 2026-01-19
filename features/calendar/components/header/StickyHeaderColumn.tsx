@@ -30,7 +30,12 @@ export default function StickyHeaderColumn({
         borderLeftWidth: 1,
         borderBottomColor: "white",
         borderBottomWidth: 2,
-        backgroundColor: isEqual(date, today) ? "green" : "grey",
+        backgroundColor: isEqual(
+          new Date(date.getFullYear(), date.getMonth(), date.getDate()),
+          new Date(today.getFullYear(), today.getMonth(), today.getDate()),
+        )
+          ? "green"
+          : "grey",
         opacity: 1,
       }}
     >
