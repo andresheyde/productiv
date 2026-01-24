@@ -33,9 +33,11 @@ export default function CalendarScreen() {
   const { calendars, loading, error, blocked, refresh } = useDeviceCalendars();
   const gesture = Gesture.Exclusive(
     Gesture.Fling()
+      .runOnJS(true)
       .direction(MouseButton.LEFT)
       .onEnd(() => onFling(MouseButton.LEFT)),
     Gesture.Fling()
+      .runOnJS(true)
       .direction(MouseButton.RIGHT)
       .onEnd(() => onFling(MouseButton.RIGHT)),
   );
