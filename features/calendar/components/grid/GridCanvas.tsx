@@ -8,6 +8,7 @@ import TimeGutters from "./TimeGutters";
 
 type GridCanvasProps = {
   numDays: number;
+  leftDate: Date;
   columnWidth: number;
   events: CalendarEvent[];
   selectedEvent: CalendarEvent | null;
@@ -18,6 +19,7 @@ type GridCanvasProps = {
 
 export default function GridCanvas({
   numDays,
+  leftDate,
   columnWidth,
   events,
   selectedEvent,
@@ -38,6 +40,7 @@ export default function GridCanvas({
       <ColumnDividers numDays={numDays} columnWidth={columnWidth} />
       <EventsLayer
         events={events}
+        leftDate={leftDate}
         numDays={numDays}
         columnWidth={columnWidth}
         selectedEvent={selectedEvent}

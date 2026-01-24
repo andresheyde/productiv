@@ -1,3 +1,13 @@
+import {
+  addDays,
+  areIntervalsOverlapping,
+  differenceInCalendarDays,
+  differenceInMinutes,
+  isAfter,
+  isBefore,
+  isEqual,
+  startOfDay,
+} from "date-fns";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { TIME_GUTTER_WIDTH, minutesToY } from "../../layout/calendarLayout";
@@ -6,6 +16,7 @@ import EventBlock from "./EventBlock";
 
 type EventsLayerProps = {
   events: CalendarEvent[];
+  leftDate: Date;
   numDays: number;
   columnWidth: number;
   selectedEvent: CalendarEvent | null;
@@ -16,6 +27,7 @@ type EventsLayerProps = {
 
 export default function EventsLayer({
   events,
+  leftDate,
   numDays,
   columnWidth,
   selectedEvent,
@@ -23,6 +35,7 @@ export default function EventsLayer({
   onEventsLayerEmptyPress,
   onEventsLayerLongPress,
 }: EventsLayerProps) {
+  const rightDate = addDays(leftDate, numDays);
   const gesture = Gesture.Race(
     Gesture.Tap().runOnJS(true).onEnd(onEventsLayerEmptyPress),
     Gesture.LongPress()
@@ -31,6 +44,42 @@ export default function EventsLayer({
         onEventsLayerLongPress(press.x, press.y);
       }),
   );
+
+  function addEventBlock(
+    event: CalendarEvent,
+    blockStartTime: Date,
+    blockEndTime: Date,
+    blockIndex: number,
+  ) {
+    if (
+      isBefore(blockStartTime, leftDate) ||
+      isAfter(blockStartTime, rightDate) ||
+      isEqual(blockStartTime, blockEndTime)
+    ) {
+      return;
+    }
+    return (
+      <View
+        key={`${event.id}-${blockIndex}`}
+        style={{
+          position: "absolute",
+          left:
+            differenceInCalendarDays(blockStartTime, leftDate) * columnWidth,
+          width: columnWidth,
+          top: minutesToY(
+            differenceInMinutes(blockStartTime, startOfDay(blockStartTime)),
+          ),
+          height: minutesToY(differenceInMinutes(blockEndTime, blockStartTime)),
+        }}
+      >
+        <EventBlock
+          event={event}
+          selectedEvent={selectedEvent}
+          onEventBlockPress={onEventBlockPress}
+        />
+      </View>
+    );
+  }
 
   return (
     <View
@@ -55,34 +104,42 @@ export default function EventsLayer({
       </GestureDetector>
       {events
         .filter((event) => {
-          return (
-            event.dayIndex >= 0 &&
-            event.dayIndex < numDays &&
-            event.startMinute >= 0 &&
-            event.startMinute < event.endMinute &&
-            event.endMinute <= 1440
+          return areIntervalsOverlapping(
+            {
+              start: event.startTime,
+              end: event.endTime,
+            },
+            {
+              start: leftDate,
+              end: rightDate,
+            },
           );
         })
         .map((event) => {
-          const eventLengthMinutes = event.endMinute - event.startMinute;
-
-          return (
-            <View
-              key={event.id}
-              style={{
-                position: "absolute",
-                left: event.dayIndex * columnWidth,
-                width: columnWidth,
-                top: minutesToY(event.startMinute),
-                height: minutesToY(eventLengthMinutes),
-              }}
-            >
-              <EventBlock
-                event={event}
-                selectedEvent={selectedEvent}
-                onEventBlockPress={onEventBlockPress}
-              />
-            </View>
+          const numEventDays =
+            differenceInCalendarDays(event.endTime, event.startTime) + 1;
+          if (numEventDays === 1) {
+            return addEventBlock(event, event.startTime, event.endTime, 0);
+          }
+          return Array.from(
+            {
+              length: numEventDays,
+            },
+            (_, i) => {
+              const startOfDate = startOfDay(
+                new Date(addDays(event.startTime, i)),
+              );
+              const endOfDate = startOfDay(
+                new Date(addDays(event.startTime, i + 1)),
+              );
+              if (i === 0) {
+                return addEventBlock(event, event.startTime, endOfDate, i);
+              } else if (i === numEventDays - 1) {
+                return addEventBlock(event, startOfDate, event.endTime, i);
+              } else {
+                return addEventBlock(event, startOfDate, endOfDate, i);
+              }
+            },
           );
         })}
     </View>

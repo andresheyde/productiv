@@ -1,4 +1,4 @@
-import { addDays, subDays } from "date-fns";
+import { addDays, addMinutes, subDays } from "date-fns";
 import * as Crypto from "expo-crypto";
 import { useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
@@ -27,7 +27,9 @@ export default function CalendarScreen() {
   );
   const [events, setEvents] = useState(testEvents);
   const today = new Date();
-  const [leftDate, setLeftDate] = useState(today);
+  const [leftDate, setLeftDate] = useState(
+    new Date(today.getFullYear(), today.getMonth(), today.getDate()),
+  );
   const { calendars, loading, error, blocked, refresh } = useDeviceCalendars();
   const gesture = Gesture.Exclusive(
     Gesture.Fling()
@@ -51,6 +53,7 @@ export default function CalendarScreen() {
           <ScrollView style={{ flex: 1 }}>
             <GridCanvas
               numDays={numDays}
+              leftDate={leftDate}
               columnWidth={columnWidth}
               events={events}
               selectedEvent={selectedEvent}
@@ -87,12 +90,21 @@ export default function CalendarScreen() {
 
   function onEventsLayerLongPress(x: number, y: number) {
     const startMinute = Math.floor(yToMinutes(y) / 5) * 5;
+    const hour = startMinute / 60;
+    const minute = startMinute % 60;
     const dayIndex = xToDayIndex(x, numDays, columnWidth);
+    const date = addDays(leftDate, dayIndex);
+    const startTime = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      hour,
+      minute,
+    );
     const newEvent: CalendarEvent = {
       id: Crypto.randomUUID(),
-      dayIndex: dayIndex,
-      startMinute: startMinute,
-      endMinute: startMinute + 60,
+      startTime: startTime,
+      endTime: addMinutes(startTime, 60),
       title: "New Event",
     };
     setEvents((prev) => [...prev, newEvent]);
@@ -102,30 +114,26 @@ export default function CalendarScreen() {
 const testEvents: CalendarEvent[] = [
   {
     id: "1",
-    dayIndex: 0,
-    startMinute: 0,
-    endMinute: 60,
+    startTime: new Date(2026, 0, 18, 12, 30),
+    endTime: new Date(2026, 0, 19, 12, 45),
     title: "First event",
   },
   {
     id: "2",
-    dayIndex: 1,
-    startMinute: 0,
-    endMinute: 60,
+    startTime: new Date(2026, 0, 20, 2, 0),
+    endTime: new Date(2026, 0, 20, 8, 45),
     title: "second event",
   },
   {
     id: "3",
-    dayIndex: 3,
-    startMinute: 75,
-    endMinute: 1200,
+    startTime: new Date(2026, 0, 21, 21, 0),
+    endTime: new Date(2026, 0, 21, 23, 0),
     title: "third event",
   },
   {
     id: "4",
-    dayIndex: 6,
-    startMinute: 1380,
-    endMinute: 1440,
+    startTime: new Date(2026, 0, 24, 0, 0),
+    endTime: new Date(2026, 0, 25, 0, 0),
     title: "fourth event",
   },
 ];
