@@ -1,4 +1,10 @@
-import { addDays, addMinutes, subDays } from "date-fns";
+import {
+  addDays,
+  addMinutes,
+  startOfDay,
+  startOfWeek,
+  subDays,
+} from "date-fns";
 import * as Crypto from "expo-crypto";
 import { useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
@@ -20,6 +26,7 @@ import { CalendarEvent } from "./types";
 
 export default function CalendarScreen() {
   const numDays = 7;
+  const weekStartDay = 0;
   const columnWidth =
     (useWindowDimensions().width - TIME_GUTTER_WIDTH) / numDays;
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
@@ -27,9 +34,7 @@ export default function CalendarScreen() {
   );
   const [events, setEvents] = useState(testEvents);
   const today = new Date();
-  const [leftDate, setLeftDate] = useState(
-    new Date(today.getFullYear(), today.getMonth(), today.getDate()),
-  );
+  const [leftDate, setLeftDate] = useState(getDefaultLeftDate());
   const { calendars, loading, error, blocked, refresh } = useDeviceCalendars();
   const gesture = Gesture.Exclusive(
     Gesture.Fling()
@@ -41,6 +46,14 @@ export default function CalendarScreen() {
       .direction(MouseButton.RIGHT)
       .onEnd(() => onFling(MouseButton.RIGHT)),
   );
+
+  function getDefaultLeftDate() {
+    return startOfDay(
+      numDays % 7 === 0
+        ? startOfWeek(today, { weekStartsOn: weekStartDay })
+        : today,
+    );
+  }
 
   return (
     <>
