@@ -1,3 +1,5 @@
+import { differenceInMinutes, startOfDay } from "date-fns";
+
 export const DEFAULT_HOUR_HEIGHT = 100;
 export const DEFAULT_GRID_HEIGHT = DEFAULT_HOUR_HEIGHT * 24;
 export const STICKY_HEADER_HEIGHT = 75;
@@ -18,6 +20,10 @@ export function timeToY(
 
 export function minutesToY(minutes: number, hourHeight = DEFAULT_HOUR_HEIGHT) {
   return (minutes * hourHeight) / 60;
+}
+
+export function dateToY(date: Date, hourHeight = DEFAULT_HOUR_HEIGHT) {
+  return minutesToY(differenceInMinutes(date, startOfDay(date)));
 }
 
 export function yToMinutes(y: number, hourHeight = DEFAULT_HOUR_HEIGHT) {

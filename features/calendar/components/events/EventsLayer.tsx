@@ -10,7 +10,7 @@ import {
 } from "date-fns";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { TIME_GUTTER_WIDTH, minutesToY } from "../../layout/calendarLayout";
+import { dateToY, minutesToY } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
 import EventBlock from "./EventBlock";
 
@@ -21,8 +21,7 @@ type EventsLayerProps = {
   columnWidth: number;
   selectedEvent: CalendarEvent | null;
   onEventBlockPress: (arg0: CalendarEvent) => void;
-  onEventsLayerEmptyPress: () => void;
-  onEventsLayerLongPress: (arg0: number, arg1: number) => void;
+  onEventsLayerEmptyPress: (arg0: number, arg1: number) => void;
 };
 
 export default function EventsLayer({
@@ -33,17 +32,13 @@ export default function EventsLayer({
   selectedEvent,
   onEventBlockPress,
   onEventsLayerEmptyPress,
-  onEventsLayerLongPress,
 }: EventsLayerProps) {
   const rightDate = addDays(leftDate, numDays);
-  const gesture = Gesture.Race(
-    Gesture.Tap().runOnJS(true).onEnd(onEventsLayerEmptyPress),
-    Gesture.LongPress()
-      .runOnJS(true)
-      .onEnd((press) => {
-        onEventsLayerLongPress(press.x, press.y);
-      }),
-  );
+  const gesture = Gesture.Tap()
+    .runOnJS(true)
+    .onEnd((press) => {
+      onEventsLayerEmptyPress(press.x, press.y);
+    });
 
   function addEventBlock(
     event: CalendarEvent,
@@ -66,9 +61,7 @@ export default function EventsLayer({
           left:
             differenceInCalendarDays(blockStartTime, leftDate) * columnWidth,
           width: columnWidth,
-          top: minutesToY(
-            differenceInMinutes(blockStartTime, startOfDay(blockStartTime)),
-          ),
+          top: dateToY(blockStartTime),
           height: minutesToY(differenceInMinutes(blockEndTime, blockStartTime)),
         }}
       >
@@ -85,7 +78,7 @@ export default function EventsLayer({
     <View
       style={{
         position: "absolute",
-        left: TIME_GUTTER_WIDTH,
+        left: 0,
         right: 0,
         top: 0,
         bottom: 0,

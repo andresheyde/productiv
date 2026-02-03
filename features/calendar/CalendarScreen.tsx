@@ -35,6 +35,7 @@ export default function CalendarScreen() {
   const [events, setEvents] = useState(testEvents);
   const today = new Date();
   const [leftDate, setLeftDate] = useState(getDefaultLeftDate());
+  const rightDate = addDays(leftDate, numDays);
   const { calendars, loading, error, blocked, refresh } = useDeviceCalendars();
   const gesture = Gesture.Exclusive(
     Gesture.Fling()
@@ -69,12 +70,13 @@ export default function CalendarScreen() {
             <GridCanvas
               numDays={numDays}
               leftDate={leftDate}
+              rightDate={rightDate}
+              today={today}
               columnWidth={columnWidth}
               events={events}
               selectedEvent={selectedEvent}
               onEventBlockPress={onEventBlockPress}
               onEventsLayerEmptyPress={onEventsLayerEmptyPress}
-              onEventsLayerLongPress={onEventsLayerLongPress}
             />
           </ScrollView>
         </View>
@@ -87,23 +89,11 @@ export default function CalendarScreen() {
     setSelectedEvent(event);
   }
 
-  function onEventsLayerEmptyPress() {
-    setSelectedEvent(null);
-  }
-
-  function onFling(direction: MouseButton) {
-    if (direction === MouseButton.LEFT) {
-      setLeftDate(subDays(leftDate, numDays));
+  function onEventsLayerEmptyPress(x: number, y: number) {
+    if (selectedEvent) {
+      setSelectedEvent(null);
       return;
     }
-    if (direction === MouseButton.RIGHT) {
-      setLeftDate(addDays(leftDate, numDays));
-      return;
-    }
-    throw new Error(`Unrecognized fling direction: ${direction}`);
-  }
-
-  function onEventsLayerLongPress(x: number, y: number) {
     const startMinute = Math.floor(yToMinutes(y) / 5) * 5;
     const hour = startMinute / 60;
     const minute = startMinute % 60;
@@ -123,6 +113,18 @@ export default function CalendarScreen() {
       title: "New Event",
     };
     setEvents((prev) => [...prev, newEvent]);
+  }
+
+  function onFling(direction: MouseButton) {
+    if (direction === MouseButton.LEFT) {
+      setLeftDate(subDays(leftDate, numDays));
+      return;
+    }
+    if (direction === MouseButton.RIGHT) {
+      setLeftDate(addDays(leftDate, numDays));
+      return;
+    }
+    throw new Error(`Unrecognized fling direction: ${direction}`);
   }
 }
 
