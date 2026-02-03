@@ -17,10 +17,26 @@ export default function EventEditorPopup({
         borderTopWidth: 2,
         borderTopColor: "white",
         backgroundColor: "gray",
+        flexDirection: "row",
       }}
     >
-      <Text>
+      <Text
+        style={{
+          flex: 0.5,
+          textAlign: "left",
+          textAlignVertical: "top",
+        }}
+      >
         {selectedEvent.title ? selectedEvent.title : "Untitled Event"}
+      </Text>
+      <Text
+        style={{
+          flex: 0.5,
+          textAlign: "right",
+          textAlignVertical: "top",
+        }}
+      >
+        {`Start: ${selectedEvent.startTime.getHours()}:${selectedEvent.startTime.getMinutes()} End: ${selectedEvent.endTime.getHours()}:${selectedEvent.endTime.getMinutes()}`}
       </Text>
     </View>
   );
