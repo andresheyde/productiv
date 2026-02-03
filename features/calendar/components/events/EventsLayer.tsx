@@ -55,7 +55,7 @@ export default function EventsLayer({
     }
     return (
       <View
-        key={`${event.id}-${blockIndex}`}
+        key={`${event.id}:${blockStartTime}`}
         style={{
           position: "absolute",
           left:

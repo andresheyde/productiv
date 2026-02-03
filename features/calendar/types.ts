@@ -4,3 +4,7 @@ export type CalendarEvent = {
   endTime: Date;
   title?: string;
 };
+
+export function calendarEventToString(event: CalendarEvent) {
+  return `{id: ${event.id}, title: ${event.title}, startTime: ${event.startTime}, endTime: ${event.endTime}}`;
+}

@@ -6,7 +6,7 @@ import {
   subDays,
 } from "date-fns";
 import * as Crypto from "expo-crypto";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
 import {
   Gesture,
@@ -17,6 +17,7 @@ import EventEditorPopup from "./components/events/EventEditorPopup";
 import GridCanvas from "./components/grid/GridCanvas";
 import StickyHeader from "./components/header/StickyHeader";
 import useDeviceCalendars from "./components/hooks/useDeviceCalendars";
+import useDeviceEvents from "./components/hooks/useDeviceEvents";
 import {
   TIME_GUTTER_WIDTH,
   xToDayIndex,
@@ -25,18 +26,44 @@ import {
 import { CalendarEvent } from "./types";
 
 export default function CalendarScreen() {
-  const numDays = 7;
   const weekStartDay = 0;
+  const numDays = 7;
+  const today = new Date();
   const columnWidth =
     (useWindowDimensions().width - TIME_GUTTER_WIDTH) / numDays;
+
+  const [leftDate, setLeftDate] = useState(getDefaultLeftDate());
+  const rightDate = addDays(leftDate, numDays);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
     null,
   );
-  const [events, setEvents] = useState(testEvents);
-  const today = new Date();
-  const [leftDate, setLeftDate] = useState(getDefaultLeftDate());
-  const rightDate = addDays(leftDate, numDays);
-  const { calendars, loading, error, blocked, refresh } = useDeviceCalendars();
+
+  const {
+    deviceCalendars,
+    calendarsLoading,
+    calendarsError,
+    calendarsBlocked,
+    calendarsRefresh,
+  } = useDeviceCalendars();
+  const {
+    deviceEvents,
+    eventsLoading,
+    eventsError,
+    eventsBlocked,
+    eventsRefresh,
+  } = useDeviceEvents(
+    deviceCalendars
+      .map((calendar) => calendar.id)
+      .slice()
+      .sort(),
+    leftDate,
+    rightDate,
+  );
+  const [events, setEvents] = useState(deviceEvents);
+  const mergedEvents = useMemo(() => {
+    return [...events, ...deviceEvents];
+  }, [events, deviceEvents]);
+
   const gesture = Gesture.Exclusive(
     Gesture.Fling()
       .runOnJS(true)
@@ -73,7 +100,7 @@ export default function CalendarScreen() {
               rightDate={rightDate}
               today={today}
               columnWidth={columnWidth}
-              events={events}
+              events={mergedEvents}
               selectedEvent={selectedEvent}
               onEventBlockPress={onEventBlockPress}
               onEventsLayerEmptyPress={onEventsLayerEmptyPress}

@@ -42,7 +42,13 @@ export default function useDeviceCalendars() {
 
   useEffect(() => {
     refresh();
-  }, [blocked, refresh]);
+  }, [refresh]);
 
-  return { calendars, loading, error, blocked, refresh };
+  return {
+    deviceCalendars: calendars,
+    calendarsLoading: loading,
+    calendarsError: error,
+    calendarsBlocked: blocked,
+    calendarsRefresh: refresh,
+  };
 }

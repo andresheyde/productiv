@@ -7,3 +7,11 @@ export async function getDeviceCalendars() {
 export async function getDefaultDeviceCalendar() {
   return await Calendar.getDefaultCalendarAsync();
 }
+
+export async function getEventsAsync(
+  calendarIds: string[],
+  startDate: Date,
+  endDate: Date,
+) {
+  return await Calendar.getEventsAsync(calendarIds, startDate, endDate);
+}
