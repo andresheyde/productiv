@@ -73,5 +73,6 @@ function transformDeviceEvent(event: Event): CalendarEvent {
     id: event.id,
     startTime: new Date(event.startDate),
     endTime: new Date(event.endDate),
+    instanceId: event.instanceId,
   };
 }

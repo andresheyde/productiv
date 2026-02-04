@@ -13,6 +13,11 @@ export default function EventBlock({
   selectedEvent,
   onEventBlockPress,
 }: EventBlockProps) {
+  const selected =
+    selectedEvent &&
+    selectedEvent.id === event.id &&
+    selectedEvent.startTime === event.startTime;
+
   return (
     <GestureDetector
       gesture={Gesture.Tap()
@@ -23,7 +28,7 @@ export default function EventBlock({
         style={{
           flex: 1,
           backgroundColor:
-            selectedEvent && event.id === selectedEvent.id ? "blue" : "white",
+            selected && event.id === selectedEvent.id ? "blue" : "white",
           borderWidth: 1,
           borderColor: "black",
         }}

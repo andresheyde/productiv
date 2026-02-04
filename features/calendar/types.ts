@@ -3,6 +3,7 @@ export type CalendarEvent = {
   startTime: Date;
   endTime: Date;
   title?: string;
+  instanceId?: string;
 };
 
 export function calendarEventToString(event: CalendarEvent) {
