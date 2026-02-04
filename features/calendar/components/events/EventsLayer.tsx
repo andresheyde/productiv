@@ -22,6 +22,8 @@ type EventsLayerProps = {
   selectedEvent: CalendarEvent | null;
   onEventBlockPress: (arg0: CalendarEvent) => void;
   onEventsLayerEmptyPress: (arg0: number, arg1: number) => void;
+  onEventsLayerLongPressBegin: (arg0: number, arg1: number) => void;
+  onEventsLayerLongPressEnd: (arg0: number, arg1: number) => void;
 };
 
 export default function EventsLayer({
@@ -32,19 +34,32 @@ export default function EventsLayer({
   selectedEvent,
   onEventBlockPress,
   onEventsLayerEmptyPress,
+  onEventsLayerLongPressBegin,
+  onEventsLayerLongPressEnd,
 }: EventsLayerProps) {
   const rightDate = addDays(leftDate, numDays);
-  const gesture = Gesture.Tap()
+
+  const pan = Gesture.Pan()
+    .runOnJS(true)
+    .onStart((press) => {
+      onEventsLayerLongPressBegin(press.x, press.y);
+    })
+    .onEnd((press) => {
+      onEventsLayerLongPressEnd(press.x, press.y);
+    })
+    .activateAfterLongPress(500);
+  const tap = Gesture.Tap()
     .runOnJS(true)
     .onEnd((press) => {
       onEventsLayerEmptyPress(press.x, press.y);
     });
 
+  const gesture = Gesture.Simultaneous(tap, pan);
+
   function addEventBlock(
     event: CalendarEvent,
     blockStartTime: Date,
     blockEndTime: Date,
-    blockIndex: number,
   ) {
     if (
       isBefore(blockStartTime, leftDate) ||

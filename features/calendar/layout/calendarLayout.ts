@@ -1,4 +1,4 @@
-import { differenceInMinutes, startOfDay } from "date-fns";
+import { addDays, differenceInMinutes, startOfDay } from "date-fns";
 
 export const DEFAULT_HOUR_HEIGHT = 100;
 export const DEFAULT_GRID_HEIGHT = DEFAULT_HOUR_HEIGHT * 24;
@@ -40,4 +40,25 @@ export function xToDayIndex(x: number, numDays: number, columnWidth: number) {
   }
   const roundedX = Math.min(Math.max(x, 0), columnWidth * (numDays - 1));
   return Math.floor(roundedX / columnWidth);
+}
+
+export function xAndYToDate(
+  x: number,
+  y: number,
+  numDays: number,
+  columnWidth: number,
+  leftDate: Date,
+) {
+  const startMinute = Math.floor(yToMinutes(y) / 5) * 5;
+  const hour = startMinute / 60;
+  const minute = startMinute % 60;
+  const dayIndex = xToDayIndex(x, numDays, columnWidth);
+  const date = addDays(leftDate, dayIndex);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    hour,
+    minute,
+  );
 }

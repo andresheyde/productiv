@@ -1,6 +1,8 @@
 import {
   addDays,
   addMinutes,
+  isAfter,
+  isBefore,
   startOfDay,
   startOfWeek,
   subDays,
@@ -18,11 +20,7 @@ import GridCanvas from "./components/grid/GridCanvas";
 import StickyHeader from "./components/header/StickyHeader";
 import useDeviceCalendars from "./components/hooks/useDeviceCalendars";
 import useDeviceEvents from "./components/hooks/useDeviceEvents";
-import {
-  TIME_GUTTER_WIDTH,
-  xToDayIndex,
-  yToMinutes,
-} from "./layout/calendarLayout";
+import { TIME_GUTTER_WIDTH, xAndYToDate } from "./layout/calendarLayout";
 import { CalendarEvent } from "./types";
 
 export default function CalendarScreen() {
@@ -104,6 +102,8 @@ export default function CalendarScreen() {
               selectedEvent={selectedEvent}
               onEventBlockPress={onEventBlockPress}
               onEventsLayerEmptyPress={onEventsLayerEmptyPress}
+              onEventsLayerLongPressBegin={onEventsLayerLongPressBegin}
+              onEventsLayerLongPressEnd={onEventsLayerLongPressEnd}
             />
           </ScrollView>
         </View>
@@ -121,18 +121,7 @@ export default function CalendarScreen() {
       setSelectedEvent(null);
       return;
     }
-    const startMinute = Math.floor(yToMinutes(y) / 5) * 5;
-    const hour = startMinute / 60;
-    const minute = startMinute % 60;
-    const dayIndex = xToDayIndex(x, numDays, columnWidth);
-    const date = addDays(leftDate, dayIndex);
-    const startTime = new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-      hour,
-      minute,
-    );
+    const startTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
     const newEvent: CalendarEvent = {
       id: Crypto.randomUUID(),
       startTime: startTime,
@@ -152,6 +141,36 @@ export default function CalendarScreen() {
       return;
     }
     throw new Error(`Unrecognized fling direction: ${direction}`);
+  }
+
+  function onEventsLayerLongPressBegin(x: number, y: number) {
+    const startTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
+    const newEvent: CalendarEvent = {
+      id: Crypto.randomUUID(),
+      startTime: startTime,
+      endTime: addMinutes(startTime, 5),
+      title: "New Event",
+    };
+    setSelectedEvent(newEvent);
+    setEvents((prev) => [...prev, newEvent]);
+  }
+
+  function onEventsLayerLongPressEnd(x: number, y: number) {
+    const endTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
+    const newEvent: CalendarEvent = {
+      id: selectedEvent!.id,
+      startTime: isBefore(selectedEvent!.startTime, endTime)
+        ? selectedEvent!.startTime
+        : endTime,
+      endTime: isAfter(endTime, selectedEvent!.startTime)
+        ? endTime
+        : selectedEvent!.startTime,
+      title: "New Event",
+    };
+    setEvents((prev) => [
+      ...prev.filter((event) => event !== selectedEvent),
+      newEvent,
+    ]);
   }
 }
 

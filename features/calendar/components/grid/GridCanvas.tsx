@@ -21,6 +21,8 @@ type GridCanvasProps = {
   selectedEvent: CalendarEvent | null;
   onEventBlockPress: (arg0: CalendarEvent) => void;
   onEventsLayerEmptyPress: (arg0: number, arg1: number) => void;
+  onEventsLayerLongPressBegin: (arg0: number, arg1: number) => void;
+  onEventsLayerLongPressEnd: (arg0: number, arg1: number) => void;
 };
 
 export default function GridCanvas({
@@ -33,6 +35,8 @@ export default function GridCanvas({
   selectedEvent,
   onEventBlockPress,
   onEventsLayerEmptyPress,
+  onEventsLayerLongPressBegin,
+  onEventsLayerLongPressEnd,
 }: GridCanvasProps) {
   return (
     <View
@@ -62,6 +66,8 @@ export default function GridCanvas({
           selectedEvent={selectedEvent}
           onEventBlockPress={onEventBlockPress}
           onEventsLayerEmptyPress={onEventsLayerEmptyPress}
+          onEventsLayerLongPressBegin={onEventsLayerLongPressBegin}
+          onEventsLayerLongPressEnd={onEventsLayerLongPressEnd}
         />
         {isWithinInterval(today, {
           start: leftDate,
