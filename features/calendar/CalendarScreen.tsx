@@ -57,7 +57,7 @@ export default function CalendarScreen() {
     leftDate,
     rightDate,
   );
-  const [events, setEvents] = useState(deviceEvents);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const mergedEvents = useMemo(() => {
     return [...events, ...deviceEvents];
   }, [events, deviceEvents]);
