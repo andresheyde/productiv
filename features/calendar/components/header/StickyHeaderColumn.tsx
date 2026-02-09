@@ -1,6 +1,7 @@
 import { isEqual } from "date-fns";
 import { Text, View } from "react-native";
 import {
+    HEADER_BUTTON_BAR_HEIGHT,
     STICKY_HEADER_HEIGHT,
     TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
@@ -22,10 +23,10 @@ export default function StickyHeaderColumn({
     <View
       style={{
         position: "absolute",
-        top: 0,
+        top: HEADER_BUTTON_BAR_HEIGHT,
         left: TIME_GUTTER_WIDTH + columnWidth * dayIndex,
         width: columnWidth,
-        height: STICKY_HEADER_HEIGHT,
+        height: STICKY_HEADER_HEIGHT - HEADER_BUTTON_BAR_HEIGHT,
         borderLeftColor: "red",
         borderLeftWidth: 1,
         borderBottomColor: "white",

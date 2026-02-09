@@ -1,9 +1,11 @@
 import { addDays } from "date-fns";
 import { View } from "react-native";
 import {
-    STICKY_HEADER_HEIGHT,
-    TIME_GUTTER_WIDTH,
+  HEADER_BUTTON_BAR_HEIGHT,
+  STICKY_HEADER_HEIGHT,
+  TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
+import StickyHeaderButtons from "./StickyHeaderButtons";
 import StickyHeaderColumn from "./StickyHeaderColumn";
 
 type StickyHeaderProps = {
@@ -11,6 +13,7 @@ type StickyHeaderProps = {
   startDate: Date;
   numDays: number;
   columnWidth: number;
+  onTodayPress?: () => void;
 };
 
 export default function StickyHeader({
@@ -18,6 +21,7 @@ export default function StickyHeader({
   startDate,
   numDays,
   columnWidth,
+  onTodayPress,
 }: StickyHeaderProps) {
   return (
     <View
@@ -32,11 +36,17 @@ export default function StickyHeader({
         style={{
           position: "absolute",
           left: 0,
-          top: 0,
-          height: STICKY_HEADER_HEIGHT,
+          top: HEADER_BUTTON_BAR_HEIGHT,
+          height: STICKY_HEADER_HEIGHT - HEADER_BUTTON_BAR_HEIGHT,
           width: TIME_GUTTER_WIDTH,
           backgroundColor: "grey",
         }}
+      />
+      <StickyHeaderButtons
+        today={today}
+        startDate={startDate}
+        numDays={numDays}
+        onTodayPress={onTodayPress}
       />
       {Array.from({ length: numDays }, (_, i) => {
         const date = addDays(startDate, i);
