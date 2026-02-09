@@ -7,6 +7,8 @@ type StickyHeaderButtonsProps = {
   startDate: Date;
   numDays: number;
   onTodayPress?: () => void;
+  onPrevPress?: () => void;
+  onNextPress?: () => void;
 };
 
 export default function StickyHeaderButtons({
@@ -14,6 +16,8 @@ export default function StickyHeaderButtons({
   startDate,
   numDays,
   onTodayPress,
+  onPrevPress,
+  onNextPress,
 }: StickyHeaderButtonsProps) {
   const startOfToday = startOfDay(today);
   const startOfLeft = startOfDay(startDate);
@@ -33,6 +37,20 @@ export default function StickyHeaderButtons({
         paddingHorizontal: 8,
       }}
     >
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <Pressable
+          onPress={() => onPrevPress && onPrevPress()}
+          style={{ padding: 6, marginRight: 8 }}
+        >
+          <Text>{"<"}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => onNextPress && onNextPress()}
+          style={{ padding: 6 }}
+        >
+          <Text>{">"}</Text>
+        </Pressable>
+      </View>
       <View style={{ flex: 1 }} />
       <Pressable
         onPress={() => onTodayPress && onTodayPress()}

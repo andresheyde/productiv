@@ -91,6 +91,8 @@ export default function CalendarScreen() {
             numDays={numDays}
             columnWidth={columnWidth}
             onTodayPress={() => setLeftDate(getDefaultLeftDate())}
+            onPrevPress={() => setLeftDate((prev) => subDays(prev, numDays))}
+            onNextPress={() => setLeftDate((prev) => addDays(prev, numDays))}
           />
           <ScrollView style={{ flex: 1 }}>
             <GridCanvas
