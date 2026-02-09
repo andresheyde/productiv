@@ -127,7 +127,7 @@ export default function EventsLayer({
           const numEventDays =
             differenceInCalendarDays(event.endTime, event.startTime) + 1;
           if (numEventDays === 1) {
-            return addEventBlock(event, event.startTime, event.endTime, 0);
+            return addEventBlock(event, event.startTime, event.endTime);
           }
           return Array.from(
             {
@@ -141,11 +141,11 @@ export default function EventsLayer({
                 new Date(addDays(event.startTime, i + 1)),
               );
               if (i === 0) {
-                return addEventBlock(event, event.startTime, endOfDate, i);
+                return addEventBlock(event, event.startTime, endOfDate);
               } else if (i === numEventDays - 1) {
-                return addEventBlock(event, startOfDate, event.endTime, i);
+                return addEventBlock(event, startOfDate, event.endTime);
               } else {
-                return addEventBlock(event, startOfDate, endOfDate, i);
+                return addEventBlock(event, startOfDate, endOfDate);
               }
             },
           );
