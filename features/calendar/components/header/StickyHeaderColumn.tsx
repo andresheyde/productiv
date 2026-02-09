@@ -1,9 +1,9 @@
-import { isEqual } from "date-fns";
+import { format, isEqual } from "date-fns";
 import { Text, View } from "react-native";
 import {
-    HEADER_BUTTON_BAR_HEIGHT,
-    STICKY_HEADER_HEIGHT,
-    TIME_GUTTER_WIDTH,
+  HEADER_BUTTON_BAR_HEIGHT,
+  STICKY_HEADER_HEIGHT,
+  TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 
 type StickyHeaderColumnProps = {
@@ -40,7 +40,27 @@ export default function StickyHeaderColumn({
         opacity: 1,
       }}
     >
-      <Text>{date.toString()}</Text>
+      <Text
+        style={{
+          position: "absolute",
+          top: 4,
+          left: 6,
+          fontWeight: "600",
+        }}
+        numberOfLines={1}
+      >
+        {format(date, "EEE")}
+      </Text>
+      <Text
+        style={{
+          position: "absolute",
+          bottom: 4,
+          right: 6,
+          fontWeight: "700",
+        }}
+      >
+        {format(date, "d")}
+      </Text>
     </View>
   );
 }
