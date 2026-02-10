@@ -1,4 +1,4 @@
-import { addDays, startOfDay } from "date-fns";
+import { addDays, format, startOfDay } from "date-fns";
 import { Pressable, Text, View } from "react-native";
 import { HEADER_BUTTON_BAR_HEIGHT } from "../../layout/calendarLayout";
 
@@ -37,7 +37,12 @@ export default function StickyHeaderButtons({
         paddingHorizontal: 8,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
+      <Text style={{ fontWeight: "600", fontSize: 16 }}>
+        {format(startDate, "MMMM yyyy")}
+      </Text>
+      <View
+        style={{ flexDirection: "row", alignItems: "center", marginLeft: 12 }}
+      >
         <Pressable
           onPress={() => onPrevPress && onPrevPress()}
           style={{ padding: 6, marginRight: 8 }}
