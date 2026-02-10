@@ -1,9 +1,9 @@
 import { format, isEqual } from "date-fns";
 import { Text, View } from "react-native";
 import {
-  HEADER_BUTTON_BAR_HEIGHT,
-  STICKY_HEADER_HEIGHT,
-  TIME_GUTTER_WIDTH,
+    HEADER_BUTTON_BAR_HEIGHT,
+    STICKY_HEADER_HEIGHT,
+    TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 
 type StickyHeaderColumnProps = {

@@ -4,6 +4,7 @@ export type CalendarEvent = {
   endTime: Date;
   title?: string;
   instanceId?: string;
+  allDay?: boolean;
 };
 
 export function calendarEventToString(event: CalendarEvent) {

@@ -1,19 +1,19 @@
 import {
-  addDays,
-  addMinutes,
-  isAfter,
-  isBefore,
-  startOfDay,
-  startOfWeek,
-  subDays,
+    addDays,
+    addMinutes,
+    isAfter,
+    isBefore,
+    startOfDay,
+    startOfWeek,
+    subDays,
 } from "date-fns";
 import * as Crypto from "expo-crypto";
 import { useMemo, useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
 import {
-  Gesture,
-  GestureDetector,
-  MouseButton,
+    Gesture,
+    GestureDetector,
+    MouseButton,
 } from "react-native-gesture-handler";
 import EventEditorPopup from "./components/events/EventEditorPopup";
 import GridCanvas from "./components/grid/GridCanvas";
@@ -62,6 +62,10 @@ export default function CalendarScreen() {
     return [...events, ...deviceEvents];
   }, [events, deviceEvents]);
 
+  const timedEvents = useMemo(() => {
+    return mergedEvents.filter((event) => !event.allDay);
+  }, [mergedEvents]);
+
   const gesture = Gesture.Exclusive(
     Gesture.Fling()
       .runOnJS(true)
@@ -90,6 +94,7 @@ export default function CalendarScreen() {
             startDate={leftDate}
             numDays={numDays}
             columnWidth={columnWidth}
+            events={mergedEvents}
             onTodayPress={() => setLeftDate(getDefaultLeftDate())}
             onPrevPress={() => setLeftDate((prev) => subDays(prev, numDays))}
             onNextPress={() => setLeftDate((prev) => addDays(prev, numDays))}
@@ -101,7 +106,7 @@ export default function CalendarScreen() {
               rightDate={rightDate}
               today={today}
               columnWidth={columnWidth}
-              events={mergedEvents}
+              events={timedEvents}
               selectedEvent={selectedEvent}
               onEventBlockPress={onEventBlockPress}
               onEventsLayerEmptyPress={onEventsLayerEmptyPress}

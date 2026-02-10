@@ -74,5 +74,6 @@ function transformDeviceEvent(event: Event): CalendarEvent {
     startTime: new Date(event.startDate),
     endTime: new Date(event.endDate),
     instanceId: event.instanceId,
+    allDay: event.allDay ?? false,
   };
 }
