@@ -1,108 +1,89 @@
-import { addDays, startOfDay } from "date-fns";
+import { addDays, areIntervalsOverlapping } from "date-fns";
 import { Text, View } from "react-native";
 import {
-    ALL_DAY_EVENTS_HEADER_HEIGHT,
-    STICKY_HEADER_HEIGHT,
-    TIME_GUTTER_WIDTH
+  STICKY_HEADER_HEIGHT,
+  TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
 
+type EventPosition = {
+  event: CalendarEvent;
+  startDayIndex: number;
+  endDayIndex: number;
+};
+
+export function computeAllDayRows(
+  events: CalendarEvent[],
+  startDate: Date,
+  numDays: number,
+): EventPosition[][] {
+  const items: EventPosition[] = [];
+  events
+    .filter((e) => e.allDay)
+    .filter((event) =>
+      areIntervalsOverlapping(
+        {
+          start: event.startTime,
+          end: event.endTime,
+        },
+        {
+          start: startDate,
+          end: addDays(startDate, numDays),
+        },
+      ),
+    )
+    .sort(
+      (a, b) =>
+        a.startTime.getTime() - b.startTime.getTime() ||
+        a.endTime.getTime() - b.endTime.getTime(),
+    )
+    .map((event) => {
+      let startIdx = -1;
+      let endIdx = -1;
+      for (let i = 0; i < numDays; i++) {
+        const dayDate = addDays(startDate, i);
+        if (event.startTime <= dayDate && event.endTime > dayDate) {
+          if (startIdx === -1) startIdx = i;
+          endIdx = i;
+        }
+      }
+      if (startIdx !== -1 && endIdx !== -1)
+        items.push({ event, startDayIndex: startIdx, endDayIndex: endIdx });
+    });
+
+  const rows: EventPosition[][] = [];
+  for (const item of items) {
+    let placed = false;
+    for (const row of rows) {
+      const last = row[row.length - 1];
+      if (item.startDayIndex > last.endDayIndex) {
+        row.push(item);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) rows.push([item]);
+  }
+  return rows;
+}
+
 type AllDayEventsHeaderProps = {
-  events: CalendarEvent[];
+  rows: EventPosition[][];
   startDate: Date;
   numDays: number;
   columnWidth: number;
 };
 
 export default function AllDayEventsHeader({
-  events,
+  rows,
   startDate,
   numDays,
   columnWidth,
 }: AllDayEventsHeaderProps) {
-  const allDayEvents = events.filter((e) => e.allDay);
-
-  if (allDayEvents.length === 0) {
-    return (
-      <View
-        style={{
-          position: "absolute",
-          top: STICKY_HEADER_HEIGHT,
-          left: 0,
-          right: 0,
-          height: ALL_DAY_EVENTS_HEADER_HEIGHT,
-          borderBottomWidth: 1,
-          borderBottomColor: "lightgray",
-        }}
-      />
-    );
-  }
-
-  const startOfRange = startOfDay(startDate);
-  const endOfRange = addDays(startOfRange, numDays - 1);
-
-  // For each column, figure out which all-day events span that day
-  const eventsByDay: Map<number, CalendarEvent[]> = new Map();
-
-  for (let i = 0; i < numDays; i++) {
-    const currentDay = addDays(startOfRange, i);
-    const spanningEvents = allDayEvents.filter((event) => {
-      const eventStart = startOfDay(event.startTime);
-      const eventEnd = startOfDay(event.endTime);
-      return currentDay >= eventStart && currentDay <= eventEnd;
-    });
-    if (spanningEvents.length > 0) {
-      eventsByDay.set(i, spanningEvents);
-    }
-  }
-
-  // Collect unique event groups across days
-  const eventRowMap: Map<
-    string,
-    { event: CalendarEvent; startDayIndex: number; endDayIndex: number }
-  > = new Map();
-
-  allDayEvents.forEach((event) => {
-    const eventStart = startOfDay(event.startTime);
-    const eventEnd = startOfDay(event.endTime);
-
-    let startIdx = -1;
-    let endIdx = -1;
-
-    // Check if event intersects the visible range at all
-    if (eventEnd > startOfRange && eventStart <= endOfRange) {
-      for (let i = 0; i < numDays; i++) {
-        const dayDate = addDays(startOfRange, i);
-        const nextDayDate = addDays(dayDate, 1);
-
-        // Event spans this day if: event starts on or before this day AND event ends after this day starts
-        if (eventStart <= dayDate && eventEnd > dayDate) {
-          if (startIdx === -1) startIdx = i;
-          endIdx = i;
-        }
-      }
-    }
-
-    // Only add to map if event intersects the visible range
-    if (startIdx !== -1 && endIdx !== -1) {
-      eventRowMap.set(event.id, {
-        event,
-        startDayIndex: startIdx,
-        endDayIndex: endIdx,
-      });
-    }
-  });
-
-  // Sort events by start day, then by title
-  const sortedEvents = Array.from(eventRowMap.values()).sort(
-    (a, b) =>
-      a.startDayIndex - b.startDayIndex ||
-      (a.event.title || "").localeCompare(b.event.title || ""),
-  );
-
-  // Show up to 2 events, rest as "+X more"
-  const displayedEvents = sortedEvents.slice(0, 2);
-  const moreCount = Math.max(0, sortedEvents.length - 2);
+  if (!rows || rows.length === 0) return null;
+  const rowHeight = 20;
+  const padding = 4;
+  const headerHeight = rows.length * rowHeight + padding * 2;
 
   return (
     <View
@@ -111,61 +92,55 @@ export default function AllDayEventsHeader({
         top: STICKY_HEADER_HEIGHT,
         left: 0,
         right: 0,
-        height: ALL_DAY_EVENTS_HEADER_HEIGHT,
+        height: headerHeight,
         borderBottomWidth: 1,
         borderBottomColor: "lightgray",
         paddingHorizontal: 4,
-        paddingVertical: 4,
+        paddingVertical: padding,
       }}
     >
-      {displayedEvents.map((item, rowIdx) => {
-        const { event, startDayIndex, endDayIndex } = item;
-        const eventWidth = columnWidth * (endDayIndex - startDayIndex + 1) - 4;
-        const eventLeft = TIME_GUTTER_WIDTH + columnWidth * startDayIndex + 2;
-
-        return (
-          <View
-            key={event.id}
-            style={{
-              position: "absolute",
-              top: rowIdx * 20 + 4,
-              left: eventLeft,
-              width: eventWidth,
-              height: 16,
-              backgroundColor: "lightblue",
-              borderRadius: 4,
-              paddingHorizontal: 4,
-              overflow: "hidden",
-            }}
-          >
-            <Text
-              numberOfLines={1}
-              style={{
-                fontSize: 11,
-                fontWeight: "500",
-                color: "black",
-              }}
-            >
-              {event.title || "Event"}
-            </Text>
-          </View>
-        );
-      })}
-
-      {moreCount > 0 && (
-        <Text
+      {rows.map((row, rowIdx) => (
+        <View
+          key={rowIdx}
           style={{
             position: "absolute",
-            bottom: 4,
-            left: TIME_GUTTER_WIDTH + 4,
-            fontSize: 11,
-            fontWeight: "600",
-            color: "gray",
+            left: 0,
+            right: 0,
+            top: padding + rowIdx * rowHeight,
           }}
         >
-          +{moreCount} more
-        </Text>
-      )}
+          {row.map((item) => {
+            const { event, startDayIndex, endDayIndex } = item;
+            const eventLeft =
+              TIME_GUTTER_WIDTH + columnWidth * startDayIndex + 2;
+            const eventWidth = Math.max(
+              24,
+              columnWidth * (endDayIndex - startDayIndex + 1) - 6,
+            );
+            return (
+              <View
+                key={event.id}
+                style={{
+                  position: "absolute",
+                  left: eventLeft,
+                  width: eventWidth,
+                  height: rowHeight - 4,
+                  backgroundColor: "white",
+                  borderWidth: 1,
+                  borderColor: "#e6e6e6",
+                  borderRadius: 4,
+                  paddingHorizontal: 6,
+                  justifyContent: "center",
+                }}
+              >
+                <Text numberOfLines={1} style={{ fontSize: 12, color: "#111" }}>
+                  {event.title || "Event"}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ))}
     </View>
   );
 }

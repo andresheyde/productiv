@@ -7,7 +7,7 @@ import {
   TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
-import AllDayEventsHeader from "./AllDayEventsHeader";
+import AllDayEventsHeader, { computeAllDayRows } from "./AllDayEventsHeader";
 import StickyHeaderButtons from "./StickyHeaderButtons";
 import StickyHeaderColumn from "./StickyHeaderColumn";
 
@@ -60,7 +60,7 @@ export default function StickyHeader({
         onNextPress={onNextPress}
       />
       <AllDayEventsHeader
-        events={events}
+        rows={computeAllDayRows(events, startDate, numDays)}
         startDate={startDate}
         numDays={numDays}
         columnWidth={columnWidth}
