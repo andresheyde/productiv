@@ -1,6 +1,6 @@
 import { Event } from "expo-calendar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarEvent } from "../../types";
+import { CalendarEvent } from "../../../types";
 import { getEventsAsync } from "../adapters/deviceCalendarAdapter";
 import useDeviceCalendarPermissions from "./useDeviceCalendarPermissions";
 

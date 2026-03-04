@@ -5,6 +5,7 @@ export const DEFAULT_GRID_HEIGHT = DEFAULT_HOUR_HEIGHT * 24;
 export const STICKY_HEADER_HEIGHT = 75;
 export const HEADER_BUTTON_BAR_HEIGHT = 28;
 export const ALL_DAY_EVENTS_HEADER_HEIGHT = 50;
+export const ALL_DAY_EVENT_HEIGHT = 20;
 export const TIME_GUTTER_WIDTH = 40;
 export const TIME_GUTTER_HEIGHT = 25;
 export const EVENT_EDITOR_POPUP_HEIGHT = 100;

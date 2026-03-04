@@ -5,7 +5,7 @@ import {
   TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
-import EventsLayer from "../events/EventsLayer";
+import EventsLayer from "../eventsLayer/EventsLayer";
 import ColumnDividers from "./ColumnDividers";
 import CurrentTimeBar from "./CurrentTimeBar";
 import HourLines from "./HourLines";

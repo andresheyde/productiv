@@ -7,7 +7,9 @@ import {
   TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
-import AllDayEventsHeader, { computeAllDayRows } from "./AllDayEventsHeader";
+import AllDayEventsHeader, {
+  computeAllDayRows,
+} from "../allDayEvents/AllDayEventsHeader";
 import StickyHeaderButtons from "./StickyHeaderButtons";
 import StickyHeaderColumn from "./StickyHeaderColumn";
 

@@ -1,8 +1,8 @@
 import { PermissionResponse, PermissionStatus } from "expo-calendar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-    getDeviceCalendarPermissions,
-    requestDeviceCalendarPermissions,
+  getDeviceCalendarPermissions,
+  requestDeviceCalendarPermissions,
 } from "../adapters/deviceCalendarPermissionsAdapter";
 
 export default function useDeviceCalendarPermissions() {

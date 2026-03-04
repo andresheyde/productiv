@@ -1,4 +1,4 @@
-import CalendarScreen from "@/features/calendar/CalendarScreen";
+import CalendarScreen from "@/features/calendar/screens/CalendarScreen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 export default function Index() {

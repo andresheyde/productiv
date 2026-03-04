@@ -1,10 +1,10 @@
 import { Text, View } from "react-native";
 import {
-    DEFAULT_GRID_HEIGHT,
-    HOURS,
-    TIME_GUTTER_HEIGHT,
-    TIME_GUTTER_WIDTH,
-    timeToY,
+  DEFAULT_GRID_HEIGHT,
+  HOURS,
+  TIME_GUTTER_HEIGHT,
+  TIME_GUTTER_WIDTH,
+  timeToY,
 } from "../../layout/calendarLayout";
 
 export default function TimeGutters() {

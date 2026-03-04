@@ -1,27 +1,27 @@
 import {
-    addDays,
-    addMinutes,
-    isAfter,
-    isBefore,
-    startOfDay,
-    startOfWeek,
-    subDays,
+  addDays,
+  addMinutes,
+  isAfter,
+  isBefore,
+  startOfDay,
+  startOfWeek,
+  subDays,
 } from "date-fns";
 import * as Crypto from "expo-crypto";
 import { useMemo, useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
 import {
-    Gesture,
-    GestureDetector,
-    MouseButton,
+  Gesture,
+  GestureDetector,
+  MouseButton,
 } from "react-native-gesture-handler";
-import EventEditorPopup from "./components/events/EventEditorPopup";
-import GridCanvas from "./components/grid/GridCanvas";
-import StickyHeader from "./components/header/StickyHeader";
-import useDeviceCalendars from "./components/hooks/useDeviceCalendars";
-import useDeviceEvents from "./components/hooks/useDeviceEvents";
-import { TIME_GUTTER_WIDTH, xAndYToDate } from "./layout/calendarLayout";
-import { CalendarEvent } from "./types";
+import EventEditorPopup from "../components/eventsLayer/EventEditorPopup";
+import GridCanvas from "../components/grid/GridCanvas";
+import StickyHeader from "../components/header/StickyHeader";
+import useDeviceCalendars from "../data/device/hooks/useDeviceCalendars";
+import useDeviceEvents from "../data/device/hooks/useDeviceEvents";
+import { TIME_GUTTER_WIDTH, xAndYToDate } from "../layout/calendarLayout";
+import { CalendarEvent } from "../types";
 
 export default function CalendarScreen() {
   const weekStartDay = 0;

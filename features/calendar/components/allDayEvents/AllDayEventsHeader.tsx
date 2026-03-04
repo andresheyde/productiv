@@ -35,7 +35,7 @@ export function computeAllDayRows(
     .sort(
       (a, b) =>
         a.startTime.getTime() - b.startTime.getTime() ||
-        a.endTime.getTime() - b.endTime.getTime(),
+        b.endTime.getTime() - a.endTime.getTime(),
     )
     .map((event) => {
       let startIdx = -1;
