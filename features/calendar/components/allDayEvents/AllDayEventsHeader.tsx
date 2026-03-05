@@ -1,10 +1,11 @@
 import { addDays, areIntervalsOverlapping } from "date-fns";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import {
   STICKY_HEADER_HEIGHT,
   TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
+import AllDayEventBlock from "./AllDayEventBlock";
 
 type EventPosition = {
   event: CalendarEvent;
@@ -118,25 +119,13 @@ export default function AllDayEventsHeader({
               columnWidth * (endDayIndex - startDayIndex + 1) - 6,
             );
             return (
-              <View
+              <AllDayEventBlock
                 key={event.id}
-                style={{
-                  position: "absolute",
-                  left: eventLeft,
-                  width: eventWidth,
-                  height: rowHeight - 4,
-                  backgroundColor: "white",
-                  borderWidth: 1,
-                  borderColor: "#e6e6e6",
-                  borderRadius: 4,
-                  paddingHorizontal: 6,
-                  justifyContent: "center",
-                }}
-              >
-                <Text numberOfLines={1} style={{ fontSize: 12, color: "#111" }}>
-                  {event.title || "Event"}
-                </Text>
-              </View>
+                event={event}
+                eventLeft={eventLeft}
+                eventWidth={eventWidth}
+                rowHeight={rowHeight}
+              />
             );
           })}
         </View>
