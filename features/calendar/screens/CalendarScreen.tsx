@@ -15,6 +15,10 @@ import {
   GestureDetector,
   MouseButton,
 } from "react-native-gesture-handler";
+import AllDayEventsHeader, {
+  calculateAllDayHeaderHeight,
+  computeAllDayRows,
+} from "../components/allDayEvents/AllDayEventsHeader";
 import EventEditorPopup from "../components/eventsLayer/EventEditorPopup";
 import GridCanvas from "../components/grid/GridCanvas";
 import StickyHeader from "../components/header/StickyHeader";
@@ -85,6 +89,11 @@ export default function CalendarScreen() {
     );
   }
 
+  const allDayRows = computeAllDayRows(mergedEvents, leftDate, numDays);
+  const allDayEventsHeaderHeight = calculateAllDayHeaderHeight(
+    allDayRows.length,
+  );
+
   return (
     <>
       <GestureDetector gesture={gesture}>
@@ -94,12 +103,17 @@ export default function CalendarScreen() {
             startDate={leftDate}
             numDays={numDays}
             columnWidth={columnWidth}
-            events={mergedEvents}
             onTodayPress={() => setLeftDate(getDefaultLeftDate())}
             onPrevPress={() => setLeftDate((prev) => subDays(prev, numDays))}
             onNextPress={() => setLeftDate((prev) => addDays(prev, numDays))}
           />
-          <ScrollView style={{ flex: 1 }}>
+          <AllDayEventsHeader
+            rows={allDayRows}
+            startDate={leftDate}
+            numDays={numDays}
+            columnWidth={columnWidth}
+          />
+          <ScrollView style={{ flex: 1, marginTop: allDayEventsHeaderHeight }}>
             <GridCanvas
               numDays={numDays}
               leftDate={leftDate}

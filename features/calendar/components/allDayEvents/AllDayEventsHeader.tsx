@@ -13,6 +13,15 @@ type EventPosition = {
   endDayIndex: number;
 };
 
+const BLOCK_HEIGHT = 16; // Event block height
+const ROW_HEIGHT = 20; // Spacing between rows
+const HEADER_PADDING = 4; // Top and bottom padding (4px each)
+const DEFAULT_HEIGHT = 24; // Default height for empty or single event
+
+export function calculateAllDayHeaderHeight(rowCount: number): number {
+  return Math.max(DEFAULT_HEIGHT, rowCount * ROW_HEIGHT + HEADER_PADDING);
+}
+
 export function computeAllDayRows(
   events: CalendarEvent[],
   startDate: Date,
@@ -81,10 +90,9 @@ export default function AllDayEventsHeader({
   numDays,
   columnWidth,
 }: AllDayEventsHeaderProps) {
-  if (!rows || rows.length === 0) return null;
-  const rowHeight = 20;
-  const padding = 4;
-  const headerHeight = rows.length * rowHeight + padding * 2;
+  const rowHeight = ROW_HEIGHT;
+  const padding = HEADER_PADDING;
+  const headerHeight = calculateAllDayHeaderHeight(rows.length);
 
   return (
     <View
@@ -95,6 +103,7 @@ export default function AllDayEventsHeader({
         right: 0,
         height: headerHeight,
         borderBottomWidth: 1,
+        backgroundColor: "gray",
         borderBottomColor: "lightgray",
         paddingHorizontal: 4,
         paddingVertical: padding,
