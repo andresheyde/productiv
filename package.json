@@ -5,6 +5,8 @@
   "version": "54.0.35",
   "scripts": {
     "start": "expo start",
+    "start:api": "npm --prefix backend run dev",
+    "dev": "concurrently -n APP,API -c auto \"npm run start\" \"npm run start:api\"",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
@@ -50,6 +52,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "concurrently": "^9.2.1",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2"
