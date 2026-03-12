@@ -3,13 +3,14 @@ import type { Credentials } from "google-auth-library";
 import { createGoogleOAuthClient } from "../../shared/clients/google-oauth-client.ts";
 import { googleScopes } from "../../shared/config/app-config.ts";
 
-export function getGoogleAuthUrl(): string {
+export function getGoogleAuthUrl(redirectTo?: string): string {
   const oauth2Client = createGoogleOAuthClient();
 
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: googleScopes,
+    ...(redirectTo ? { state: redirectTo } : {}),
   });
 }
 

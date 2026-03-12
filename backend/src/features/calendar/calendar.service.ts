@@ -1,12 +1,8 @@
-import { addDays } from "date-fns";
+import { addDays, startOfDay } from "date-fns";
 import type { Credentials } from "google-auth-library";
 import { google, type calendar_v3 } from "googleapis";
 
 import { createGoogleOAuthClient } from "../../shared/clients/google-oauth-client.ts";
-import {
-  eventsWindowLengthDays,
-  eventsWindowStart,
-} from "../../shared/config/app-config.ts";
 
 export interface MergedCalendarEvent extends calendar_v3.Schema$Event {
   sourceCalendarId: string;
@@ -15,6 +11,8 @@ export interface MergedCalendarEvent extends calendar_v3.Schema$Event {
 
 export async function getMergedCalendarEvents(
   tokens: Credentials,
+  startDate: Date,
+  endDate: Date,
 ): Promise<MergedCalendarEvent[]> {
   const oauth2Client = createGoogleOAuthClient();
   oauth2Client.setCredentials(tokens);
@@ -42,12 +40,9 @@ export async function getMergedCalendarEvents(
 
         const eventsListResponse = await calendar.events.list({
           calendarId: calendarItem.id,
-          timeMin: eventsWindowStart.toISOString(),
-          timeMax: addDays(
-            eventsWindowStart,
-            eventsWindowLengthDays,
-          ).toISOString(),
-          maxResults: 50,
+          timeMin: startOfDay(startDate).toISOString(),
+          timeMax: addDays(startOfDay(endDate), 1).toISOString(),
+          maxResults: 250,
           singleEvents: true,
           orderBy: "startTime",
         });

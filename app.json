@@ -47,13 +47,15 @@
         {
           "calendarPermission": "The app needs to access your calendar."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
     "extra": {
+      "apiBaseUrl": "http://localhost:3000",
       "router": {},
       "eas": {
         "projectId": "505d6258-aac1-4270-92e9-6826b2e9f024"

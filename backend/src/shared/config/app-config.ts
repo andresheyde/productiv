@@ -6,5 +6,4 @@ export const googleScopes = [
   "https://www.googleapis.com/auth/calendar.events.readonly",
 ];
 
-export const eventsWindowStart = new Date(2026, 2, 8);
-export const eventsWindowLengthDays = 7;
+export const maxScheduleRangeDays = 7;
