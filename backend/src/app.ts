@@ -6,9 +6,11 @@ import { calendarRouter } from "./features/calendar/calendar.routes.ts";
 
 export const app = express();
 
+app.use(express.json());
+
 app.use((_req: Request, res: Response, next: NextFunction) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
 
   if (_req.method === "OPTIONS") {

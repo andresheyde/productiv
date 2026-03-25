@@ -9,6 +9,12 @@ export interface MergedCalendarEvent extends calendar_v3.Schema$Event {
   sourceCalendarName: string;
 }
 
+interface CreateCalendarEventInput {
+  title: string;
+  startTime: Date;
+  endTime: Date;
+}
+
 export async function getMergedCalendarEvents(
   tokens: Credentials,
   startDate: Date,
@@ -73,4 +79,31 @@ export async function getMergedCalendarEvents(
 
   console.log("[Response] Sending merged and sorted events to client");
   return mergedEvents;
+}
+
+export async function createGoogleCalendarEvent(
+  tokens: Credentials,
+  input: CreateCalendarEventInput,
+) {
+  const oauth2Client = createGoogleOAuthClient();
+  oauth2Client.setCredentials(tokens);
+
+  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+  console.log(`[Events] Creating Google Calendar event: ${input.title}`);
+
+  const response = await calendar.events.insert({
+    calendarId: "primary",
+    requestBody: {
+      summary: input.title,
+      start: {
+        dateTime: input.startTime.toISOString(),
+      },
+      end: {
+        dateTime: input.endTime.toISOString(),
+      },
+    },
+  });
+
+  return response.data;
 }

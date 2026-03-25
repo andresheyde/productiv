@@ -15,6 +15,8 @@ import {
   GestureDetector,
   MouseButton,
 } from "react-native-gesture-handler";
+import { useAuth } from "@/features/auth/AuthProvider";
+import { createGoogleCalendarEvent } from "../api/googleCalendarApi";
 import AllDayEventsHeader, {
   calculateAllDayHeaderHeight,
   computeAllDayRows,
@@ -39,6 +41,10 @@ export default function CalendarScreen() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
     null,
   );
+  const [isSavingToGoogle, setIsSavingToGoogle] = useState(false);
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [saveStatusMessage, setSaveStatusMessage] = useState<string | null>(null);
+  const { authId, isAuthenticated } = useAuth();
 
   const {
     deviceCalendars,
@@ -93,6 +99,11 @@ export default function CalendarScreen() {
   const allDayEventsHeaderHeight = calculateAllDayHeaderHeight(
     allDayRows.length,
   );
+  const canSaveSelectedEvent =
+    selectedEvent !== null &&
+    events.includes(selectedEvent) &&
+    !selectedEvent.googleCalendarEventId &&
+    isAuthenticated;
 
   return (
     <>
@@ -130,16 +141,29 @@ export default function CalendarScreen() {
           </ScrollView>
         </View>
       </GestureDetector>
-      {selectedEvent && <EventEditorPopup selectedEvent={selectedEvent} />}
+      {selectedEvent ? (
+        <EventEditorPopup
+          selectedEvent={selectedEvent}
+          canSaveToGoogle={canSaveSelectedEvent}
+          isSavingToGoogle={isSavingToGoogle}
+          saveErrorMessage={saveErrorMessage}
+          saveStatusMessage={saveStatusMessage}
+          onSaveToGoogle={onSaveToGoogle}
+        />
+      ) : null}
     </>
   );
 
   function onEventBlockPress(event: CalendarEvent) {
+    setSaveErrorMessage(null);
+    setSaveStatusMessage(getSaveStatusMessage(event));
     setSelectedEvent(event);
   }
 
   function onEventsLayerEmptyPress(x: number, y: number) {
     if (selectedEvent) {
+      setSaveErrorMessage(null);
+      setSaveStatusMessage(null);
       setSelectedEvent(null);
       return;
     }
@@ -166,6 +190,8 @@ export default function CalendarScreen() {
   }
 
   function onEventsLayerLongPressBegin(x: number, y: number) {
+    setSaveErrorMessage(null);
+    setSaveStatusMessage(null);
     const startTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
     const newEvent: CalendarEvent = {
       id: Crypto.randomUUID(),
@@ -178,6 +204,8 @@ export default function CalendarScreen() {
   }
 
   function onEventsLayerLongPressEnd(x: number, y: number) {
+    setSaveErrorMessage(null);
+    setSaveStatusMessage(null);
     const endTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
     const newEvent: CalendarEvent = {
       id: selectedEvent!.id,
@@ -193,6 +221,69 @@ export default function CalendarScreen() {
       ...prev.filter((event) => event !== selectedEvent),
       newEvent,
     ]);
+    setSelectedEvent(newEvent);
+  }
+
+  async function onSaveToGoogle() {
+    if (!selectedEvent || !authId) {
+      setSaveErrorMessage("Connect Google before saving events.");
+      return;
+    }
+
+    if (!events.includes(selectedEvent)) {
+      setSaveErrorMessage("Only Productiv-created events can be saved right now.");
+      setSaveStatusMessage("Google save is only enabled for events created inside Productiv.");
+      return;
+    }
+
+    setSaveErrorMessage(null);
+    setSaveStatusMessage("Sending event to Google Calendar...");
+    setIsSavingToGoogle(true);
+
+    try {
+      const createdEvent = await createGoogleCalendarEvent({
+        authId,
+        title: selectedEvent.title,
+        startTime: selectedEvent.startTime,
+        endTime: selectedEvent.endTime,
+      });
+
+      const updatedEvent = {
+        ...selectedEvent,
+        googleCalendarEventId: createdEvent.id ?? selectedEvent.id,
+      };
+
+      setEvents((prev) =>
+        prev.map((event) => (event.id === selectedEvent.id ? updatedEvent : event)),
+      );
+      setSelectedEvent(updatedEvent);
+      setSaveStatusMessage("Saved to your primary Google Calendar.");
+    } catch (error) {
+      setSaveErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to save event to Google Calendar.",
+      );
+      setSaveStatusMessage(null);
+    } finally {
+      setIsSavingToGoogle(false);
+    }
+  }
+
+  function getSaveStatusMessage(event: CalendarEvent) {
+    if (event.googleCalendarEventId) {
+      return "This event has already been saved to your primary Google Calendar.";
+    }
+
+    if (!events.includes(event)) {
+      return "This is a device calendar event. Create a new Productiv event to save through Google.";
+    }
+
+    if (!isAuthenticated) {
+      return "Connect Google on the schedule screen before saving calendar events.";
+    }
+
+    return "Tap the button below to save this event to your primary Google Calendar.";
   }
 }
 

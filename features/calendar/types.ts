@@ -5,6 +5,7 @@ export type CalendarEvent = {
   title?: string;
   instanceId?: string;
   allDay?: boolean;
+  googleCalendarEventId?: string;
 };
 
 export function calendarEventToString(event: CalendarEvent) {

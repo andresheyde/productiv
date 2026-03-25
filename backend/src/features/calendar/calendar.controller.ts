@@ -8,12 +8,22 @@ import type { Request, Response } from "express";
 
 import { maxScheduleRangeDays } from "../../shared/config/app-config.ts";
 import { getAuthTokens } from "../../shared/stores/auth-store.ts";
-import { getMergedCalendarEvents } from "./calendar.service.ts";
+import {
+  createGoogleCalendarEvent,
+  getMergedCalendarEvents,
+} from "./calendar.service.ts";
 
 interface CalendarEventsQuery {
   authId?: string;
   startDate?: string;
   endDate?: string;
+}
+
+interface CreateCalendarEventBody {
+  authId?: string;
+  title?: string;
+  startTime?: string;
+  endTime?: string;
 }
 
 export async function getCalendarEvents(
@@ -75,5 +85,53 @@ export async function getCalendarEvents(
   } catch (error) {
     console.error("[Events] Failed to fetch calendar events", error);
     return res.status(500).json({ error: "Failed to fetch calendar events" });
+  }
+}
+
+export async function createCalendarEvent(
+  req: Request<{}, {}, CreateCalendarEventBody>,
+  res: Response,
+) {
+  const { authId, title, startTime, endTime } = req.body;
+
+  if (typeof authId !== "string" || authId.length === 0) {
+    return res.status(400).json({ error: "Missing authId" });
+  }
+
+  if (typeof startTime !== "string" || typeof endTime !== "string") {
+    return res.status(400).json({ error: "Missing startTime or endTime" });
+  }
+
+  const parsedStartTime = new Date(startTime);
+  const parsedEndTime = new Date(endTime);
+
+  if (!isValid(parsedStartTime) || !isValid(parsedEndTime)) {
+    return res.status(400).json({ error: "Invalid startTime or endTime" });
+  }
+
+  if (!isBefore(parsedStartTime, parsedEndTime)) {
+    return res.status(400).json({ error: "endTime must be after startTime" });
+  }
+
+  const tokens = getAuthTokens(authId);
+
+  if (!tokens) {
+    return res.status(401).json({ error: "Invalid or expired authId" });
+  }
+
+  try {
+    const createdEvent = await createGoogleCalendarEvent(tokens, {
+      title:
+        typeof title === "string" && title.trim().length > 0
+          ? title.trim()
+          : "Untitled event",
+      startTime: parsedStartTime,
+      endTime: parsedEndTime,
+    });
+
+    return res.status(201).json(createdEvent);
+  } catch (error) {
+    console.error("[Events] Failed to create calendar event", error);
+    return res.status(500).json({ error: "Failed to create calendar event" });
   }
 }

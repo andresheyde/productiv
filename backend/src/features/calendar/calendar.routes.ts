@@ -1,7 +1,8 @@
 import { Router } from "express";
 
-import { getCalendarEvents } from "./calendar.controller.ts";
+import { createCalendarEvent, getCalendarEvents } from "./calendar.controller.ts";
 
 export const calendarRouter = Router();
 
+calendarRouter.post("/calendar/events", createCalendarEvent);
 calendarRouter.get("/calendar/events", getCalendarEvents);
