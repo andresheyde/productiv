@@ -34,10 +34,11 @@ export default function StickyHeaderButtons({
         height: HEADER_BUTTON_BAR_HEIGHT,
         flexDirection: "row",
         alignItems: "center",
-        paddingHorizontal: 8,
+        paddingHorizontal: 12,
+        backgroundColor: "#fffdf8",
       }}
     >
-      <Text style={{ fontWeight: "600", fontSize: 16 }}>
+      <Text style={{ fontWeight: "700", fontSize: 16, color: "#16423c" }}>
         {format(startDate, "MMMM yyyy")}
       </Text>
       <View
@@ -45,24 +46,51 @@ export default function StickyHeaderButtons({
       >
         <Pressable
           onPress={() => onPrevPress && onPrevPress()}
-          style={{ padding: 6, marginRight: 8 }}
+          style={navButtonStyle(true)}
         >
-          <Text>{"<"}</Text>
+          <Text style={navButtonTextStyle}>{"<"}</Text>
         </Pressable>
         <Pressable
           onPress={() => onNextPress && onNextPress()}
-          style={{ padding: 6 }}
+          style={navButtonStyle(false)}
         >
-          <Text>{">"}</Text>
+          <Text style={navButtonTextStyle}>{">"}</Text>
         </Pressable>
       </View>
       <View style={{ flex: 1 }} />
       <Pressable
         onPress={() => onTodayPress && onTodayPress()}
-        style={{ padding: 6 }}
+        style={{
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 999,
+          backgroundColor: todayInView ? "#16423c" : "#efe6d7",
+        }}
       >
-        <Text style={{ color: todayInView ? "blue" : "black" }}>Today</Text>
+        <Text
+          style={{
+            color: todayInView ? "#f4f1ea" : "#1f2937",
+            fontWeight: "700",
+          }}
+        >
+          Today
+        </Text>
       </Pressable>
     </View>
   );
 }
+
+function navButtonStyle(withMarginRight: boolean) {
+  return {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginRight: withMarginRight ? 8 : 0,
+    borderRadius: 999,
+    backgroundColor: "#efe6d7",
+  };
+}
+
+const navButtonTextStyle = {
+  color: "#1f2937",
+  fontWeight: "700" as const,
+};

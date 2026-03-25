@@ -27,16 +27,16 @@ export default function StickyHeaderColumn({
         left: TIME_GUTTER_WIDTH + columnWidth * dayIndex,
         width: columnWidth,
         height: STICKY_HEADER_HEIGHT - HEADER_BUTTON_BAR_HEIGHT,
-        borderLeftColor: "red",
+        borderLeftColor: "#dfd6c8",
         borderLeftWidth: 1,
-        borderBottomColor: "white",
-        borderBottomWidth: 2,
+        borderBottomColor: "#dfd6c8",
+        borderBottomWidth: 1,
         backgroundColor: isEqual(
           new Date(date.getFullYear(), date.getMonth(), date.getDate()),
           new Date(today.getFullYear(), today.getMonth(), today.getDate()),
         )
-          ? "green"
-          : "grey",
+          ? "#d9e7e3"
+          : "#fffdf8",
         opacity: 1,
       }}
     >
@@ -46,6 +46,7 @@ export default function StickyHeaderColumn({
           top: 4,
           left: 6,
           fontWeight: "600",
+          color: "#5f6b76",
         }}
         numberOfLines={1}
       >
@@ -57,6 +58,7 @@ export default function StickyHeaderColumn({
           bottom: 4,
           right: 6,
           fontWeight: "700",
+          color: "#16423c",
         }}
       >
         {format(date, "d")}

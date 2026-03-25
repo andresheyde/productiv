@@ -1,23 +1,37 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { EVENT_EDITOR_POPUP_HEIGHT } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
 
 type EventEditorPopupProps = {
   selectedEvent: CalendarEvent;
-  canSaveToGoogle: boolean;
-  isSavingToGoogle: boolean;
-  saveErrorMessage: string | null;
-  saveStatusMessage: string | null;
-  onSaveToGoogle: () => void;
+  draftTitle: string;
+  draftDescription: string;
+  canSyncToGoogle: boolean;
+  canDelete: boolean;
+  isSaving: boolean;
+  statusMessage: string | null;
+  errorMessage: string | null;
+  onDraftTitleChange: (nextValue: string) => void;
+  onDraftDescriptionChange: (nextValue: string) => void;
+  onSaveLocal: () => void;
+  onSyncGoogle: () => void;
+  onDelete: () => void;
 };
 
 export default function EventEditorPopup({
   selectedEvent,
-  canSaveToGoogle,
-  isSavingToGoogle,
-  saveErrorMessage,
-  saveStatusMessage,
-  onSaveToGoogle,
+  draftTitle,
+  draftDescription,
+  canSyncToGoogle,
+  canDelete,
+  isSaving,
+  statusMessage,
+  errorMessage,
+  onDraftTitleChange,
+  onDraftDescriptionChange,
+  onSaveLocal,
+  onSyncGoogle,
+  onDelete,
 }: EventEditorPopupProps) {
   return (
     <View
@@ -36,41 +50,144 @@ export default function EventEditorPopup({
         elevation: 10,
       }}
     >
-      <Text style={{ fontSize: 18, fontWeight: "700", color: "#1f2937" }}>
-        {selectedEvent.title ? selectedEvent.title : "Untitled Event"}
+      <Text style={{ fontSize: 12, fontWeight: "700", color: "#5f6b76" }}>
+        {getSourceLabel(selectedEvent)}
       </Text>
+      <TextInput
+        value={draftTitle}
+        onChangeText={onDraftTitleChange}
+        placeholder="Event title"
+        style={{
+          borderWidth: 1,
+          borderColor: "#cbd5e1",
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          backgroundColor: "#fffdf8",
+          fontSize: 18,
+          fontWeight: "700",
+          color: "#1f2937",
+        }}
+      />
       <Text style={{ color: "#5f6b76", lineHeight: 20 }}>
         {`Start: ${selectedEvent.startTime.toLocaleString()}\nEnd: ${selectedEvent.endTime.toLocaleString()}`}
       </Text>
-      <Pressable
-        onPress={onSaveToGoogle}
-        disabled={!canSaveToGoogle || isSavingToGoogle}
+      <TextInput
+        value={draftDescription}
+        onChangeText={onDraftDescriptionChange}
+        placeholder="Details or notes"
+        multiline
+        textAlignVertical="top"
         style={{
-          backgroundColor: !canSaveToGoogle || isSavingToGoogle ? "#cbd5e1" : "#1f6f78",
+          minHeight: 72,
+          borderWidth: 1,
+          borderColor: "#cbd5e1",
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          backgroundColor: "#fffdf8",
+          color: "#1f2937",
+        }}
+      />
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Pressable
+          onPress={onSaveLocal}
+          style={{
+            flex: 1,
+            backgroundColor: "#16423c",
+            borderRadius: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ color: "#f8fafc", fontWeight: "700" }}>
+            Save Changes
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={onSyncGoogle}
+          disabled={!canSyncToGoogle || isSaving}
+          style={{
+            flex: 1,
+            backgroundColor:
+              !canSyncToGoogle || isSaving ? "#cbd5e1" : "#1f6f78",
+            borderRadius: 12,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ color: "#f8fafc", fontWeight: "700" }}>
+            {getSyncLabel(selectedEvent, isSaving)}
+          </Text>
+        </Pressable>
+      </View>
+      <Pressable
+        onPress={onDelete}
+        disabled={!canDelete || isSaving}
+        style={{
+          backgroundColor: !canDelete || isSaving ? "#e7d8d2" : "#b42318",
           borderRadius: 12,
           paddingHorizontal: 16,
           paddingVertical: 12,
           alignItems: "center",
         }}
       >
-        <Text style={{ color: "#f8fafc", fontWeight: "700" }}>
-          {selectedEvent.googleCalendarEventId
-            ? "Saved to Google Calendar"
-            : isSavingToGoogle
-              ? "Saving..."
-              : "Save to Google Calendar"}
+        <Text style={{ color: "#fff7f5", fontWeight: "700" }}>
+          {getDeleteLabel(selectedEvent, isSaving)}
         </Text>
       </Pressable>
-      {saveStatusMessage ? (
+      {statusMessage ? (
         <Text style={{ color: "#5f6b76", fontWeight: "600" }}>
-          {saveStatusMessage}
+          {statusMessage}
         </Text>
       ) : null}
-      {saveErrorMessage ? (
+      {errorMessage ? (
         <Text style={{ color: "#b42318", fontWeight: "600" }}>
-          {saveErrorMessage}
+          {errorMessage}
         </Text>
       ) : null}
     </View>
   );
+}
+
+function getSourceLabel(event: CalendarEvent) {
+  if (event.source === "google") {
+    return `Google Event${event.sourceCalendarName ? ` • ${event.sourceCalendarName}` : ""}`;
+  }
+
+  if (event.source === "device") {
+    return "Device Calendar Event";
+  }
+
+  return "Productiv Event";
+}
+
+function getSyncLabel(event: CalendarEvent, isSaving: boolean) {
+  if (isSaving) {
+    return "Saving...";
+  }
+
+  if (event.source === "google" || event.googleCalendarEventId) {
+    return "Update Google";
+  }
+
+  return "Save to Google";
+}
+
+function getDeleteLabel(event: CalendarEvent, isSaving: boolean) {
+  if (isSaving) {
+    return "Working...";
+  }
+
+  if (event.source === "device") {
+    return "Device Events Are Read-Only";
+  }
+
+  if (event.source === "google" || event.googleCalendarEventId) {
+    return "Delete From Productiv And Google";
+  }
+
+  return "Delete Event";
 }

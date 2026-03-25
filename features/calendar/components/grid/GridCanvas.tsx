@@ -43,7 +43,7 @@ export default function GridCanvas({
       style={{
         position: "relative",
         height: DEFAULT_GRID_HEIGHT,
-        backgroundColor: "black",
+        backgroundColor: "#fffdf8",
       }}
     >
       <TimeGutters />

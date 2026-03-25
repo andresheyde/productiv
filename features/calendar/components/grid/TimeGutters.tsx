@@ -16,7 +16,7 @@ export default function TimeGutters() {
         top: 0,
         width: TIME_GUTTER_WIDTH,
         height: DEFAULT_GRID_HEIGHT,
-        backgroundColor: "gray",
+        backgroundColor: "#efe6d7",
       }}
     >
       {Array.from({ length: HOURS }, (_, i) => {
@@ -34,6 +34,9 @@ export default function TimeGutters() {
             <Text
               style={{
                 textAlign: "center",
+                color: "#5f6b76",
+                fontSize: 12,
+                fontWeight: "600",
               }}
             >
               {hourToString(i)}

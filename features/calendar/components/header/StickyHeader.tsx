@@ -31,9 +31,9 @@ export default function StickyHeader({
     <View
       style={{
         height: STICKY_HEADER_HEIGHT,
-        borderBottomWidth: 2,
-        borderBottomColor: "white",
-        backgroundColor: "gray",
+        borderBottomWidth: 1,
+        borderBottomColor: "#dfd6c8",
+        backgroundColor: "#fffdf8",
       }}
     >
       <View
@@ -43,7 +43,7 @@ export default function StickyHeader({
           top: HEADER_BUTTON_BAR_HEIGHT,
           height: STICKY_HEADER_HEIGHT - HEADER_BUTTON_BAR_HEIGHT,
           width: TIME_GUTTER_WIDTH,
-          backgroundColor: "grey",
+          backgroundColor: "#efe6d7",
         }}
       />
       <StickyHeaderButtons

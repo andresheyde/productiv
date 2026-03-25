@@ -103,8 +103,8 @@ export default function AllDayEventsHeader({
         right: 0,
         height: headerHeight,
         borderBottomWidth: 1,
-        backgroundColor: "gray",
-        borderBottomColor: "lightgray",
+        backgroundColor: "#fffdf8",
+        borderBottomColor: "#dfd6c8",
         paddingHorizontal: 4,
         paddingVertical: padding,
       }}

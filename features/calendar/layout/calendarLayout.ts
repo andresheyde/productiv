@@ -8,7 +8,7 @@ export const ALL_DAY_EVENTS_HEADER_HEIGHT = 50;
 export const ALL_DAY_EVENT_HEIGHT = 20;
 export const TIME_GUTTER_WIDTH = 40;
 export const TIME_GUTTER_HEIGHT = 25;
-export const EVENT_EDITOR_POPUP_HEIGHT = 220;
+export const EVENT_EDITOR_POPUP_HEIGHT = 360;
 
 export const HOURS = 24;
 export const MINUTES = 60;

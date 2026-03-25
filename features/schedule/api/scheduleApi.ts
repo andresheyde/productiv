@@ -5,11 +5,16 @@ export type BackendScheduleEvent = {
   title: string;
   startTime: Date;
   endTime: Date;
+  allDay: boolean;
+  description: string;
+  sourceCalendarId: string;
+  sourceCalendarName: string;
 };
 
 type GoogleCalendarApiEvent = {
   id?: string | null;
   summary?: string | null;
+  description?: string | null;
   start?: {
     date?: string | null;
     dateTime?: string | null;
@@ -18,6 +23,8 @@ type GoogleCalendarApiEvent = {
     date?: string | null;
     dateTime?: string | null;
   } | null;
+  sourceCalendarId?: string | null;
+  sourceCalendarName?: string | null;
 };
 
 export async function fetchScheduleEvents(
@@ -67,5 +74,9 @@ function mapGoogleEventToScheduleEvent(
     title: event.summary?.trim() || "Untitled event",
     startTime: new Date(startSource),
     endTime: new Date(endSource),
+    allDay: !event.start?.dateTime || !event.end?.dateTime,
+    description: event.description?.trim() || "",
+    sourceCalendarId: event.sourceCalendarId ?? "primary",
+    sourceCalendarName: event.sourceCalendarName ?? "Primary",
   };
 }

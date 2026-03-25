@@ -20,7 +20,7 @@ export default function ColumnDividers({
           bottom: 0,
           left: columnWidth * (i + 1),
           width: 1,
-          backgroundColor: "white",
+          backgroundColor: "#eadfcd",
           opacity: 1,
         }}
       />

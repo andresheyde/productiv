@@ -11,8 +11,19 @@ export interface MergedCalendarEvent extends calendar_v3.Schema$Event {
 
 interface CreateCalendarEventInput {
   title: string;
+  description?: string;
   startTime: Date;
   endTime: Date;
+}
+
+interface UpdateCalendarEventInput extends CreateCalendarEventInput {
+  eventId: string;
+  calendarId: string;
+}
+
+interface DeleteCalendarEventInput {
+  eventId: string;
+  calendarId: string;
 }
 
 export async function getMergedCalendarEvents(
@@ -92,18 +103,69 @@ export async function createGoogleCalendarEvent(
 
   console.log(`[Events] Creating Google Calendar event: ${input.title}`);
 
+  const requestBody: calendar_v3.Schema$Event = {
+    summary: input.title,
+    start: {
+      dateTime: input.startTime.toISOString(),
+    },
+    end: {
+      dateTime: input.endTime.toISOString(),
+    },
+    ...(input.description ? { description: input.description } : {}),
+  };
+
   const response = await calendar.events.insert({
     calendarId: "primary",
-    requestBody: {
-      summary: input.title,
-      start: {
-        dateTime: input.startTime.toISOString(),
-      },
-      end: {
-        dateTime: input.endTime.toISOString(),
-      },
-    },
+    requestBody,
   });
 
   return response.data;
+}
+
+export async function updateGoogleCalendarEvent(
+  tokens: Credentials,
+  input: UpdateCalendarEventInput,
+) {
+  const oauth2Client = createGoogleOAuthClient();
+  oauth2Client.setCredentials(tokens);
+
+  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+  console.log(`[Events] Updating Google Calendar event: ${input.eventId}`);
+
+  const requestBody: calendar_v3.Schema$Event = {
+    summary: input.title,
+    start: {
+      dateTime: input.startTime.toISOString(),
+    },
+    end: {
+      dateTime: input.endTime.toISOString(),
+    },
+    ...(input.description ? { description: input.description } : {}),
+  };
+
+  const response = await calendar.events.update({
+    calendarId: input.calendarId,
+    eventId: input.eventId,
+    requestBody,
+  });
+
+  return response.data;
+}
+
+export async function deleteGoogleCalendarEvent(
+  tokens: Credentials,
+  input: DeleteCalendarEventInput,
+) {
+  const oauth2Client = createGoogleOAuthClient();
+  oauth2Client.setCredentials(tokens);
+
+  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+  console.log(`[Events] Deleting Google Calendar event: ${input.eventId}`);
+
+  await calendar.events.delete({
+    calendarId: input.calendarId,
+    eventId: input.eventId,
+  });
 }

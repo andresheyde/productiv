@@ -13,7 +13,7 @@ export default function HourLines() {
           right: 0,
           top: timeToY(i + 1),
           height: 1,
-          backgroundColor: "white",
+          backgroundColor: "#eadfcd",
           opacity: 1,
         }}
       />
