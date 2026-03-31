@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 
 import { authRouter } from "./features/auth/auth.routes.ts";
 import { calendarRouter } from "./features/calendar/calendar.routes.ts";
+import { planningRouter } from "./features/planning/planning.routes.ts";
 
 export const app = express();
 
@@ -26,3 +27,4 @@ app.get("/", (_req, res) => {
 
 app.use(authRouter);
 app.use(calendarRouter);
+app.use(planningRouter);

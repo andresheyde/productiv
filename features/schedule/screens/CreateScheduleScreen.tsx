@@ -1,66 +1,41 @@
-import DateTimePicker, {
-  type DateTimePickerEvent,
-} from "@react-native-community/datetimepicker";
-import {
-  addDays,
-  differenceInCalendarDays,
-  format,
-  isBefore,
-  startOfDay,
-} from "date-fns";
+import * as Crypto from "expo-crypto";
 import { Link } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
-  Platform,
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/features/auth/AuthProvider";
-import { createGoogleCalendarEvent } from "@/features/calendar/api/googleCalendarApi";
 import { connectGoogleCalendar } from "@/features/auth/googleAuth";
+import { sendPlanningTurn } from "@/features/planning/api/planningApi";
 import {
-  type BackendScheduleEvent,
-  fetchScheduleEvents,
-} from "@/features/schedule/api/scheduleApi";
-
-type PickerTarget = "start" | "end" | null;
-type ScheduleProposalState = "idle" | "accepted" | "declined";
-
-const MAX_RANGE_IN_DAYS = 7;
+  createEmptyDraftPlanningState,
+  type GeneratedPlan,
+  type PlanningChatMessage,
+  type PlanningTurnStatus,
+} from "@/features/planning/types";
 
 export default function CreateScheduleScreen() {
-  const today = startOfDay(new Date());
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(addDays(today, 2));
-  const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
-  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
-  const [events, setEvents] = useState<BackendScheduleEvent[]>([]);
-  const [showSchedulePreview, setShowSchedulePreview] = useState(false);
-  const [proposalState, setProposalState] =
-    useState<ScheduleProposalState>("idle");
-  const [isPublishingProposal, setIsPublishingProposal] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { authId, isAuthenticated, clearAuthId, setAuthId } = useAuth();
-  const availableDates = getAvailableDates(today, 21);
+  const [messages, setMessages] = useState<PlanningChatMessage[]>([]);
+  const [draftPlanningState, setDraftPlanningState] = useState(
+    createEmptyDraftPlanningState(),
+  );
+  const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null);
+  const [composerValue, setComposerValue] = useState("");
+  const [screenState, setScreenState] = useState<PlanningTurnStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const validationMessage = getValidationMessage(startDate, endDate, today);
-  const schedulePreviewDays = buildSchedulePreview(events, startDate, endDate);
-  const canFetchEvents =
-    isAuthenticated &&
-    validationMessage === null &&
-    !isConnectingGoogle &&
-    !isLoadingEvents;
+  const isWaitingForResponse = screenState === "waiting_for_response";
 
   async function handleConnectGoogle() {
     setErrorMessage(null);
-    setIsConnectingGoogle(true);
 
     try {
       const result = await connectGoogleCalendar();
@@ -72,12 +47,15 @@ export default function CreateScheduleScreen() {
           setAuthId(nextAuthId);
           return;
         }
+
+        setErrorMessage(
+          "Google authentication finished, but no authId was returned.",
+        );
+        return;
       }
 
       if (result.type === "cancel" || result.type === "dismiss") {
         setErrorMessage("Google authentication was cancelled.");
-      } else if (result.type === "success") {
-        setErrorMessage("Google authentication finished, but no authId was returned.");
       }
     } catch (error) {
       setErrorMessage(
@@ -85,107 +63,56 @@ export default function CreateScheduleScreen() {
           ? error.message
           : "Unable to connect to Google right now.",
       );
-    } finally {
-      setIsConnectingGoogle(false);
     }
   }
 
-  async function handleFetchEvents() {
-    if (!authId) {
-      setErrorMessage("Connect Google before fetching events.");
+  async function handleSendMessage() {
+    const nextMessage = composerValue.trim();
+
+    if (!nextMessage || isWaitingForResponse) {
       return;
     }
 
-    if (validationMessage) {
-      setErrorMessage(validationMessage);
-      return;
-    }
+    const nextHistory = [
+      ...messages,
+      {
+        id: Crypto.randomUUID(),
+        role: "user" as const,
+        content: nextMessage,
+      },
+    ];
 
+    setMessages(nextHistory);
+    setComposerValue("");
     setErrorMessage(null);
-    setIsLoadingEvents(true);
+    setScreenState("waiting_for_response");
 
     try {
-      const nextEvents = await fetchScheduleEvents(authId, startDate, endDate);
-      setEvents(nextEvents);
-      setShowSchedulePreview(true);
-      setProposalState("idle");
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Failed to fetch events.",
+      const response = await sendPlanningTurn({
+        chatHistory: nextHistory,
+        currentDraftPlanningState: draftPlanningState,
+      });
+
+      setDraftPlanningState(response.draftPlanningState);
+      setGeneratedPlan(response.generatedPlan);
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        {
+          id: Crypto.randomUUID(),
+          role: "assistant",
+          content: response.assistantMessage,
+        },
+      ]);
+      setScreenState(
+        response.status === "plan_ready" ? "draft_ready" : "collecting_input",
       );
-    } finally {
-      setIsLoadingEvents(false);
-    }
-  }
-
-  async function handleAcceptProposal() {
-    if (!authId) {
-      setErrorMessage("Connect Google before publishing a proposal.");
-      return;
-    }
-
-    const suggestedItems = schedulePreviewDays.flatMap((day) =>
-      day.items.filter((item) => item.kind === "suggested"),
-    );
-
-    if (suggestedItems.length === 0) {
-      setProposalState("accepted");
-      return;
-    }
-
-    setErrorMessage(null);
-    setIsPublishingProposal(true);
-
-    try {
-      await Promise.all(
-        suggestedItems.map((item) =>
-          createGoogleCalendarEvent({
-            authId,
-            title: item.title,
-            description: "Created from a Productiv schedule proposal.",
-            startTime: item.startTime,
-            endTime: item.endTime,
-          }),
-        ),
-      );
-
-      const refreshedEvents = await fetchScheduleEvents(authId, startDate, endDate);
-      setEvents(refreshedEvents);
-      setProposalState("accepted");
     } catch (error) {
+      setScreenState("error");
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Failed to publish the proposed schedule.",
+          : "Failed to process planning turn.",
       );
-    } finally {
-      setIsPublishingProposal(false);
-    }
-  }
-
-  function handleDateChange(
-    _event: DateTimePickerEvent,
-    selectedDate?: Date,
-  ) {
-    if (!selectedDate) {
-      if (Platform.OS !== "ios") {
-        setPickerTarget(null);
-      }
-      return;
-    }
-
-    const normalizedDate = startOfDay(selectedDate);
-
-    if (pickerTarget === "start") {
-      setStartDate(normalizedDate);
-    }
-
-    if (pickerTarget === "end") {
-      setEndDate(normalizedDate);
-    }
-
-    if (Platform.OS !== "ios") {
-      setPickerTarget(null);
     }
   }
 
@@ -217,7 +144,7 @@ export default function CreateScheduleScreen() {
               color: "#f4f1ea",
             }}
           >
-            Build your next week
+            Build the first plan draft
           </Text>
           <Text
             style={{
@@ -226,8 +153,10 @@ export default function CreateScheduleScreen() {
               color: "#d9e7e3",
             }}
           >
-            Pick a future date range, connect Google Calendar, and prepare a
-            schedule inside that selected window.
+            Start with a messy goal or problem statement. Productive will ask
+            one focused follow-up at a time, extract a structured planning
+            draft behind the scenes, and stop once it has enough to draft a
+            realistic first plan.
           </Text>
           <Link
             href="/calendar"
@@ -239,208 +168,63 @@ export default function CreateScheduleScreen() {
           >
             Open the existing calendar view
           </Link>
-        </View>
-
-        <View
-          style={{
-            backgroundColor: "#fffdf8",
-            borderRadius: 20,
-            padding: 18,
-            gap: 14,
-            borderWidth: 1,
-            borderColor: "#dfd6c8",
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: "700",
-              color: "#1f2937",
-            }}
-          >
-            1. Choose a date range
-          </Text>
-          <Text
-            style={{
-              color: "#5f6b76",
-              lineHeight: 20,
-            }}
-          >
-            Dates must start today or later and stay within a single 7-day
-            window.
-          </Text>
-
-          <DateField
-            label="Start date"
-            value={startDate}
-            onPress={() => setPickerTarget("start")}
-          />
-          <DateField
-            label="End date"
-            value={endDate}
-            onPress={() => setPickerTarget("end")}
-          />
-
-          {Platform.OS === "web" ? (
-            <View style={{ gap: 10 }}>
-              <Text
-                style={{
-                  color: "#5f6b76",
-                  fontWeight: "600",
-                }}
-              >
-                {pickerTarget === "end"
-                  ? "Choose an end date"
-                  : "Choose a start date"}
-              </Text>
-              <FlatList
-                horizontal
-                data={availableDates}
-                keyExtractor={(item) => item.toISOString()}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 10 }}
-                renderItem={({ item }) => {
-                  const isDisabled =
-                    pickerTarget === "end" && isBefore(item, startDate);
-                  const isSelected =
-                    (pickerTarget === "start" &&
-                      item.getTime() === startDate.getTime()) ||
-                    (pickerTarget === "end" &&
-                      item.getTime() === endDate.getTime());
-
-                  return (
-                    <Pressable
-                      disabled={isDisabled}
-                      onPress={() => {
-                        if (pickerTarget === "end") {
-                          setEndDate(item);
-                        } else {
-                          setStartDate(item);
-                        }
-                      }}
-                      style={{
-                        minWidth: 112,
-                        borderRadius: 16,
-                        paddingHorizontal: 14,
-                        paddingVertical: 12,
-                        backgroundColor: isSelected ? "#16423c" : "#efe6d7",
-                        opacity: isDisabled ? 0.45 : 1,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: isSelected ? "#f4f1ea" : "#1f2937",
-                          fontWeight: "700",
-                        }}
-                      >
-                        {format(item, "EEE")}
-                      </Text>
-                      <Text
-                        style={{
-                          color: isSelected ? "#d9e7e3" : "#5f6b76",
-                        }}
-                      >
-                        {format(item, "MMM d")}
-                      </Text>
-                    </Pressable>
-                  );
-                }}
-              />
-            </View>
-          ) : pickerTarget ? (
-            <View
-              style={{
-                borderRadius: 16,
-                backgroundColor: "#f4f1ea",
-                padding: 12,
-              }}
-            >
-              <DateTimePicker
-                value={pickerTarget === "start" ? startDate : endDate}
-                mode="date"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                minimumDate={pickerTarget === "start" ? today : startDate}
-                onChange={handleDateChange}
-              />
-              {Platform.OS === "ios" ? (
-                <Pressable
-                  onPress={() => setPickerTarget(null)}
-                  style={buttonStyle("#16423c")}
-                >
-                  <Text style={buttonTextStyle("#f4f1ea")}>Done</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
-
-          {validationMessage ? (
-            <Text
-              style={{
-                color: "#b42318",
-                fontWeight: "600",
-              }}
-            >
-              {validationMessage}
-            </Text>
-          ) : null}
-        </View>
-
-        <View
-          style={{
-            backgroundColor: "#fffdf8",
-            borderRadius: 20,
-            padding: 18,
-            gap: 14,
-            borderWidth: 1,
-            borderColor: "#dfd6c8",
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: "700",
-              color: "#1f2937",
-            }}
-          >
-            2. Connect Google
-          </Text>
-          <Text
-            style={{
-              color: isAuthenticated ? "#166534" : "#5f6b76",
-              fontWeight: "600",
-            }}
-          >
-            {isAuthenticated
-              ? "Google Calendar connected"
-              : "Google Calendar not connected yet"}
-          </Text>
           <View
             style={{
               flexDirection: "row",
               gap: 10,
               flexWrap: "wrap",
+              alignItems: "center",
             }}
           >
             <Pressable
               onPress={handleConnectGoogle}
-              disabled={isConnectingGoogle}
-              style={buttonStyle("#1f6f78", isConnectingGoogle)}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderRadius: 16,
+                backgroundColor: isAuthenticated ? "#d5ebe2" : "#f6c453",
+              }}
             >
-              <Text style={buttonTextStyle("#f4f1ea")}>
-                {isConnectingGoogle ? "Connecting..." : "Connect Google"}
+              <Text
+                style={{
+                  fontWeight: "700",
+                  color: "#16423c",
+                }}
+              >
+                {isAuthenticated ? "Google connected" : "Connect Google Calendar"}
               </Text>
             </Pressable>
             {isAuthenticated ? (
               <Pressable
-                onPress={() => {
-                  clearAuthId();
-                  setEvents([]);
+                onPress={clearAuthId}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  borderRadius: 16,
+                  backgroundColor: "#f1ece4",
                 }}
-                style={buttonStyle("#efe6d7")}
               >
-                <Text style={buttonTextStyle("#1f2937")}>Disconnect</Text>
+                <Text
+                  style={{
+                    fontWeight: "600",
+                    color: "#5f6b76",
+                  }}
+                >
+                  Reset connection
+                </Text>
               </Pressable>
             ) : null}
+            <Text
+              style={{
+                color: "#d9e7e3",
+                lineHeight: 20,
+                flexShrink: 1,
+              }}
+            >
+              {authId
+                ? "Calendar access is available from the homepage and calendar view."
+                : "Calendar linking stays available here for later scheduling work."}
+            </Text>
           </View>
         </View>
 
@@ -461,412 +245,331 @@ export default function CreateScheduleScreen() {
               color: "#1f2937",
             }}
           >
-            3. Create schedule in selected range
+            Planning chat
           </Text>
-          <Pressable
-            onPress={handleFetchEvents}
-            disabled={!canFetchEvents}
-            style={buttonStyle("#f6c453", !canFetchEvents)}
+          <Text
+            style={{
+              color: "#5f6b76",
+              lineHeight: 20,
+            }}
           >
-            <Text style={buttonTextStyle("#1f2937")}>
-              {isLoadingEvents
-                ? "Preparing selected range..."
-                : "Create schedule in selected range"}
-            </Text>
-          </Pressable>
+            Focus on what you are trying to achieve, what is making it hard, and
+            what constraints are real. The assistant will keep pulling the
+            conversation toward a usable planning draft.
+          </Text>
 
-          {isLoadingEvents ? (
-            <ActivityIndicator color="#16423c" />
-          ) : null}
+          <View
+            style={{
+              gap: 12,
+            }}
+          >
+            {messages.length === 0 ? (
+              <View
+                style={{
+                  borderRadius: 16,
+                  padding: 14,
+                  backgroundColor: "#f7f3ec",
+                  borderWidth: 1,
+                  borderColor: "#eadfce",
+                }}
+              >
+                <Text
+                  style={{
+                    color: "#5f6b76",
+                    lineHeight: 20,
+                  }}
+                >
+                  Example: "I want to get much better at software engineering,
+                  but my weeks get eaten by work, phone distraction, and random
+                  errands."
+                </Text>
+              </View>
+            ) : null}
+
+            {messages.map((message) => (
+              <View
+                key={message.id}
+                style={{
+                  alignSelf:
+                    message.role === "user" ? "flex-end" : "flex-start",
+                  maxWidth: "92%",
+                  borderRadius: 18,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  backgroundColor:
+                    message.role === "user" ? "#16423c" : "#f7f3ec",
+                  borderWidth: message.role === "assistant" ? 1 : 0,
+                  borderColor: "#dfd6c8",
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: "700",
+                    marginBottom: 6,
+                    color:
+                      message.role === "user" ? "#d9e7e3" : "#5f6b76",
+                  }}
+                >
+                  {message.role === "user" ? "You" : "Productive"}
+                </Text>
+                <Text
+                  style={{
+                    color: message.role === "user" ? "#f4f1ea" : "#1f2937",
+                    lineHeight: 20,
+                  }}
+                >
+                  {message.content}
+                </Text>
+              </View>
+            ))}
+
+            {isWaitingForResponse ? (
+              <View
+                style={{
+                  alignSelf: "flex-start",
+                  borderRadius: 18,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  backgroundColor: "#f7f3ec",
+                  borderWidth: 1,
+                  borderColor: "#dfd6c8",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <ActivityIndicator color="#16423c" />
+                <Text
+                  style={{
+                    color: "#5f6b76",
+                  }}
+                >
+                  Building the next planning turn...
+                </Text>
+              </View>
+            ) : null}
+          </View>
 
           {errorMessage ? (
             <Text
               style={{
-                color: "#b42318",
-                fontWeight: "600",
+                color: "#9b2c2c",
+                backgroundColor: "#fce8e8",
+                padding: 12,
+                borderRadius: 14,
               }}
             >
               {errorMessage}
             </Text>
           ) : null}
 
-          {!isLoadingEvents && events.length === 0 ? (
-            <Text
+          <View
+            style={{
+              gap: 10,
+            }}
+          >
+            <TextInput
+              value={composerValue}
+              onChangeText={setComposerValue}
+              placeholder="Describe the goal, friction, or current situation..."
+              placeholderTextColor="#8a96a3"
+              editable={!isWaitingForResponse}
+              multiline
               style={{
-                color: "#5f6b76",
-                lineHeight: 20,
-              }}
-            >
-              Once you connect Google and fetch events, they’ll appear here as a
-              simple schedule preview.
-            </Text>
-          ) : null}
-
-          {showSchedulePreview ? (
-            <View
-              style={{
-                borderRadius: 20,
+                minHeight: 112,
+                borderRadius: 18,
                 borderWidth: 1,
                 borderColor: "#dfd6c8",
-                backgroundColor: "#fffaf1",
-                padding: 16,
-                gap: 14,
-                shadowColor: "#16423c",
-                shadowOpacity: 0.08,
-                shadowRadius: 12,
-                shadowOffset: { width: 0, height: 6 },
-                elevation: 4,
+                backgroundColor: "#ffffff",
+                paddingHorizontal: 14,
+                paddingVertical: 14,
+                textAlignVertical: "top",
+                color: "#1f2937",
               }}
-            >
-              <Text
-                style={{
-                  fontSize: 18,
-                  fontWeight: "700",
-                  color: "#16423c",
-                }}
-              >
-                Selected range preview
-              </Text>
-              <Text
-                style={{
-                  color: "#5f6b76",
-                  lineHeight: 20,
-                }}
-              >
-                Existing events are shown first. Open windows are filled with
-                placeholder tasks for now so we can preview the scheduling flow
-                before anything gets published.
-              </Text>
+            />
 
-              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                <Pressable
-                  onPress={handleAcceptProposal}
-                  disabled={isPublishingProposal}
-                  style={buttonStyle(
-                    proposalState === "accepted" ? "#16423c" : "#1f6f78",
-                    isPublishingProposal,
-                  )}
-                >
-                  <Text style={buttonTextStyle("#f4f1ea")}>
-                    {isPublishingProposal
-                      ? "Publishing to Productiv..."
-                      : proposalState === "accepted"
-                      ? "Proposal accepted"
-                      : "Accept proposal"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setProposalState("declined");
-                    setShowSchedulePreview(false);
-                  }}
-                  style={buttonStyle("#efe6d7")}
-                >
-                  <Text style={buttonTextStyle("#1f2937")}>Decline</Text>
-                </Pressable>
-              </View>
-
-              {proposalState === "accepted" ? (
-                <Text
-                  style={{
-                    color: "#166534",
-                    fontWeight: "600",
-                    lineHeight: 20,
-                  }}
-                >
-                  This proposal has been published to your Productiv Google
-                  Calendar.
-                </Text>
-              ) : null}
-
-              {schedulePreviewDays.map((day) => (
-                <View
-                  key={day.date.toISOString()}
-                  style={{
-                    gap: 8,
-                    borderTopWidth: 1,
-                    borderTopColor: "#eadfcd",
-                    paddingTop: 12,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontWeight: "700",
-                      color: "#1f2937",
-                    }}
-                  >
-                    {format(day.date, "EEEE, MMM d")}
-                  </Text>
-                  {day.items.length === 0 ? (
-                    <Text style={{ color: "#5f6b76" }}>
-                      No events or placeholder tasks in this range.
-                    </Text>
-                  ) : (
-                    day.items.map((item) => (
-                      <View
-                        key={`${day.date.toISOString()}-${item.id}`}
-                        style={{
-                          borderRadius: 14,
-                          backgroundColor:
-                            item.kind === "suggested" ? "#f6c453" : "#d9e7e3",
-                          paddingHorizontal: 12,
-                          paddingVertical: 10,
-                          gap: 2,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontWeight: "700",
-                            color: "#1f2937",
-                          }}
-                        >
-                          {item.title}
-                        </Text>
-                        <Text style={{ color: "#344054" }}>
-                          {format(item.startTime, "h:mm a")} -{" "}
-                          {format(item.endTime, "h:mm a")}
-                          {item.kind === "suggested"
-                            ? " • Suggested task"
-                            : " • Google event"}
-                        </Text>
-                      </View>
-                    ))
-                  )}
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          {events.map((event) => (
-            <View
-              key={event.id}
+            <Pressable
+              onPress={handleSendMessage}
+              disabled={isWaitingForResponse || composerValue.trim().length === 0}
               style={{
-                borderRadius: 16,
-                backgroundColor: "#f4f1ea",
-                padding: 14,
-                gap: 4,
+                paddingHorizontal: 16,
+                paddingVertical: 16,
+                borderRadius: 18,
+                backgroundColor:
+                  isWaitingForResponse || composerValue.trim().length === 0
+                    ? "#d6ddd9"
+                    : "#16423c",
+                alignItems: "center",
               }}
             >
               <Text
                 style={{
-                  fontSize: 16,
                   fontWeight: "700",
-                  color: "#1f2937",
+                  color: "#f4f1ea",
                 }}
               >
-                {event.title}
+                Send
               </Text>
-              <Text style={{ color: "#5f6b76" }}>
-                Start: {format(event.startTime, "EEE, MMM d • h:mm a")}
-              </Text>
-              <Text style={{ color: "#5f6b76" }}>
-                End: {format(event.endTime, "EEE, MMM d • h:mm a")}
-              </Text>
-            </View>
-          ))}
+            </Pressable>
+          </View>
         </View>
+
+        {generatedPlan ? (
+          <View
+            style={{
+              backgroundColor: "#fffdf8",
+              borderRadius: 20,
+              padding: 18,
+              gap: 14,
+              borderWidth: 1,
+              borderColor: "#dfd6c8",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "700",
+                color: "#1f2937",
+              }}
+            >
+              Draft plan review
+            </Text>
+            <PlanSection label="Direction" value={generatedPlan.direction} />
+            <PlanSection
+              label="Medium-term goal"
+              value={generatedPlan.mediumTermGoal}
+            />
+            <PlanListSection
+              label="30-day performance goals"
+              items={generatedPlan.thirtyDayPerformanceGoals}
+            />
+            <PlanListSection
+              label="14-day performance goals"
+              items={generatedPlan.fourteenDayPerformanceGoals}
+            />
+            <PlanSection
+              label="Time availability"
+              value={generatedPlan.timeAvailability}
+            />
+            <PlanListSection
+              label="Time protection plan"
+              items={generatedPlan.timeProtectionPlan}
+            />
+            <PlanListSection
+              label="Limiting habits"
+              items={generatedPlan.limitingHabits}
+            />
+            <PlanListSection
+              label="Scripted actions"
+              items={generatedPlan.scriptedActions}
+            />
+            <PlanListSection
+              label="Environmental optimizations"
+              items={generatedPlan.environmentalOptimizations}
+            />
+            <PlanListSection
+              label="Constraints"
+              items={generatedPlan.constraints}
+            />
+            <PlanSection label="Summary" value={generatedPlan.summary} />
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-type DateFieldProps = {
+type PlanSectionProps = {
   label: string;
-  value: Date;
-  onPress: () => void;
+  value: string;
 };
 
-type SchedulePreviewItem = {
-  id: string;
-  title: string;
-  startTime: Date;
-  endTime: Date;
-  kind: "event" | "suggested";
-};
-
-type SchedulePreviewDay = {
-  date: Date;
-  items: SchedulePreviewItem[];
-};
-
-function DateField({ label, value, onPress }: DateFieldProps) {
+function PlanSection({ label, value }: PlanSectionProps) {
   return (
-    <View style={{ gap: 8 }}>
+    <View
+      style={{
+        gap: 6,
+      }}
+    >
       <Text
         style={{
-          fontSize: 14,
-          fontWeight: "600",
-          color: "#1f2937",
+          fontWeight: "700",
+          fontSize: 16,
+          color: "#16423c",
         }}
       >
         {label}
       </Text>
-      <Pressable onPress={onPress} style={buttonStyle("#efe6d7")}>
-        <Text style={buttonTextStyle("#1f2937")}>
-          {format(value, "EEEE, MMMM d, yyyy")}
-        </Text>
-      </Pressable>
+      <Text
+        style={{
+          color: "#1f2937",
+          lineHeight: 21,
+        }}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 
-function getValidationMessage(startDate: Date, endDate: Date, today: Date) {
-  if (isBefore(startDate, today)) {
-    return "Start date must be today or later.";
-  }
+type PlanListSectionProps = {
+  label: string;
+  items: string[];
+};
 
-  if (isBefore(endDate, startDate)) {
-    return "End date must be on or after the start date.";
-  }
-
-  if (differenceInCalendarDays(endDate, startDate) >= MAX_RANGE_IN_DAYS) {
-    return "Date range must stay within 7 days.";
-  }
-
-  return null;
-}
-
-function getAvailableDates(today: Date, numberOfDays: number) {
-  return Array.from({ length: numberOfDays }, (_, index) =>
-    addDays(today, index),
-  );
-}
-
-function getAuthIdFromUrl(url: string | null | undefined) {
-  if (!url) {
+function PlanListSection({ label, items }: PlanListSectionProps) {
+  if (items.length === 0) {
     return null;
   }
 
+  return (
+    <View
+      style={{
+        gap: 8,
+      }}
+    >
+      <Text
+        style={{
+          fontWeight: "700",
+          fontSize: 16,
+          color: "#16423c",
+        }}
+      >
+        {label}
+      </Text>
+      <View style={{ gap: 8 }}>
+        {items.map((item) => (
+          <View
+            key={`${label}-${item}`}
+            style={{
+              padding: 12,
+              borderRadius: 14,
+              backgroundColor: "#f7f3ec",
+              borderWidth: 1,
+              borderColor: "#eadfce",
+            }}
+          >
+            <Text
+              style={{
+                color: "#1f2937",
+                lineHeight: 20,
+              }}
+            >
+              {item}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function getAuthIdFromUrl(url: string) {
   try {
     const parsedUrl = new URL(url);
     return parsedUrl.searchParams.get("authId");
   } catch {
     return null;
   }
-}
-
-function buildSchedulePreview(
-  events: BackendScheduleEvent[],
-  startDate: Date,
-  endDate: Date,
-) {
-  const days = Array.from(
-    { length: differenceInCalendarDays(endDate, startDate) + 1 },
-    (_, index) => startOfDay(addDays(startDate, index)),
-  );
-
-  return days.map<SchedulePreviewDay>((date) => {
-    const dayEvents = events
-      .filter(
-        (event) =>
-          startOfDay(event.startTime).getTime() === date.getTime() && !event.allDay,
-      )
-      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-
-    const suggestedTasks = buildSuggestedTasksForDay(date, dayEvents);
-    const items = [
-      ...dayEvents.map<SchedulePreviewItem>((event) => ({
-        id: event.id,
-        title: event.title,
-        startTime: event.startTime,
-        endTime: event.endTime,
-        kind: "event",
-      })),
-      ...suggestedTasks,
-    ].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-
-    return { date, items };
-  });
-}
-
-function buildSuggestedTasksForDay(
-  date: Date,
-  dayEvents: BackendScheduleEvent[],
-) {
-  const placeholderTitles = [
-    "Deep work block",
-    "Inbox cleanup",
-    "Workout",
-    "Project planning",
-    "Reading session",
-    "Admin catch-up",
-  ];
-
-  const dayStart = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    9,
-    0,
-  );
-  const dayEnd = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    17,
-    0,
-  );
-
-  const suggestedTasks: SchedulePreviewItem[] = [];
-  let cursor = dayStart;
-  let titleIndex = 0;
-
-  for (const event of dayEvents) {
-    if (cursor < event.startTime) {
-      const gapMinutes = Math.floor(
-        (event.startTime.getTime() - cursor.getTime()) / 60000,
-      );
-
-      if (gapMinutes >= 60 && suggestedTasks.length < 2) {
-        suggestedTasks.push({
-          id: `suggested-${date.toISOString()}-${titleIndex}`,
-          title: placeholderTitles[titleIndex % placeholderTitles.length],
-          startTime: cursor,
-          endTime: new Date(cursor.getTime() + 45 * 60000),
-          kind: "suggested",
-        });
-        titleIndex += 1;
-      }
-    }
-
-    if (event.endTime > cursor) {
-      cursor = event.endTime;
-    }
-  }
-
-  if (cursor < dayEnd && suggestedTasks.length < 2) {
-    const remainingMinutes = Math.floor((dayEnd.getTime() - cursor.getTime()) / 60000);
-
-    if (remainingMinutes >= 60) {
-      suggestedTasks.push({
-        id: `suggested-${date.toISOString()}-${titleIndex}`,
-        title: placeholderTitles[titleIndex % placeholderTitles.length],
-        startTime: cursor,
-        endTime: new Date(cursor.getTime() + 45 * 60000),
-        kind: "suggested",
-      });
-    }
-  }
-
-  return suggestedTasks;
-}
-
-function buttonStyle(backgroundColor: string, disabled = false) {
-  return {
-    backgroundColor,
-    opacity: disabled ? 0.6 : 1,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
-  };
-}
-
-function buttonTextStyle(color: string) {
-  return {
-    color,
-    fontSize: 15,
-    fontWeight: "700" as const,
-  };
 }
