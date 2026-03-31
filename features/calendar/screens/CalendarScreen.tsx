@@ -76,7 +76,7 @@ export default function CalendarScreen() {
     leftDate,
     rightDate,
   );
-  const { googleEvents } = useGoogleEvents(
+  const { googleEvents, googleEventsLoading, googleEventsRefresh } = useGoogleEvents(
     authId,
     leftDate,
     googleFetchEndDate,
@@ -137,9 +137,11 @@ export default function CalendarScreen() {
             startDate={leftDate}
             numDays={numDays}
             columnWidth={columnWidth}
+            isSyncing={googleEventsLoading}
             onTodayPress={() => setLeftDate(getDefaultLeftDate())}
             onPrevPress={() => setLeftDate((prev) => subDays(prev, numDays))}
             onNextPress={() => setLeftDate((prev) => addDays(prev, numDays))}
+            onSyncPress={handleManualSync}
           />
           <AllDayEventsHeader
             rows={allDayRows}
@@ -342,14 +344,18 @@ export default function CalendarScreen() {
 
         const syncedEvent: CalendarEvent = {
           ...updatedEvent,
+          id: createdEvent.id ? `google:${createdEvent.id}` : updatedEvent.id,
+          source: "google",
           googleCalendarEventId: createdEvent.id ?? updatedEvent.id,
-          sourceCalendarId: "primary",
-          sourceCalendarName: "Primary",
+          sourceCalendarId: createdEvent.sourceCalendarId ?? "primary",
+          sourceCalendarName: createdEvent.sourceCalendarName ?? "Productiv",
         };
 
         replaceEventInState(syncedEvent);
-        setEditorState(syncedEvent, "Saved to your primary Google Calendar.");
+        setEditorState(syncedEvent, "Saved to your Productiv Google Calendar.");
       }
+
+      void googleEventsRefresh();
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -401,6 +407,7 @@ export default function CalendarScreen() {
       setDraftTitle("");
       setDraftDescription("");
       setStatusMessage(null);
+      void googleEventsRefresh();
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -412,13 +419,19 @@ export default function CalendarScreen() {
     }
   }
 
+  function handleManualSync() {
+    clearEditorMessages();
+    setDeletedEventIds([]);
+    void googleEventsRefresh();
+  }
+
   function getEventStatusMessage(event: CalendarEvent) {
     if (event.source === "google") {
       return `This event came from Google Calendar${event.sourceCalendarName ? ` (${event.sourceCalendarName})` : ""}.`;
     }
 
     if (event.googleCalendarEventId) {
-      return "This event has already been saved to your primary Google Calendar.";
+      return "This event has already been saved to your Productiv Google Calendar.";
     }
 
     if (event.source === "device") {
@@ -429,7 +442,7 @@ export default function CalendarScreen() {
       return "Connect Google on the schedule screen before saving calendar events.";
     }
 
-    return "Tap the button below to save this event to your primary Google Calendar.";
+    return "Tap the button below to save this event to your Productiv Google Calendar.";
   }
 
   function getLocalSaveMessage(event: CalendarEvent) {

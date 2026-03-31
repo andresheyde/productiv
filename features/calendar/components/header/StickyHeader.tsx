@@ -13,9 +13,11 @@ type StickyHeaderProps = {
   startDate: Date;
   numDays: number;
   columnWidth: number;
+  isSyncing?: boolean;
   onTodayPress?: () => void;
   onPrevPress?: () => void;
   onNextPress?: () => void;
+  onSyncPress?: () => void;
 };
 
 export default function StickyHeader({
@@ -23,9 +25,11 @@ export default function StickyHeader({
   startDate,
   numDays,
   columnWidth,
+  isSyncing,
   onTodayPress,
   onPrevPress,
   onNextPress,
+  onSyncPress,
 }: StickyHeaderProps) {
   return (
     <View
@@ -50,9 +54,11 @@ export default function StickyHeader({
         today={today}
         startDate={startDate}
         numDays={numDays}
+        isSyncing={isSyncing}
         onTodayPress={onTodayPress}
         onPrevPress={onPrevPress}
         onNextPress={onNextPress}
+        onSyncPress={onSyncPress}
       />
       {Array.from({ length: numDays }, (_, i) => {
         const date = addDays(startDate, i);

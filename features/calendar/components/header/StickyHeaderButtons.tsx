@@ -6,18 +6,22 @@ type StickyHeaderButtonsProps = {
   today: Date;
   startDate: Date;
   numDays: number;
+  isSyncing?: boolean;
   onTodayPress?: () => void;
   onPrevPress?: () => void;
   onNextPress?: () => void;
+  onSyncPress?: () => void;
 };
 
 export default function StickyHeaderButtons({
   today,
   startDate,
   numDays,
+  isSyncing,
   onTodayPress,
   onPrevPress,
   onNextPress,
+  onSyncPress,
 }: StickyHeaderButtonsProps) {
   const startOfToday = startOfDay(today);
   const startOfLeft = startOfDay(startDate);
@@ -58,6 +62,26 @@ export default function StickyHeaderButtons({
         </Pressable>
       </View>
       <View style={{ flex: 1 }} />
+      <Pressable
+        onPress={() => onSyncPress && onSyncPress()}
+        disabled={isSyncing}
+        style={{
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 999,
+          backgroundColor: isSyncing ? "#cbd5e1" : "#d9e7e3",
+          marginRight: 8,
+        }}
+      >
+        <Text
+          style={{
+            color: "#16423c",
+            fontWeight: "700",
+          }}
+        >
+          {isSyncing ? "Syncing..." : "Sync"}
+        </Text>
+      </Pressable>
       <Pressable
         onPress={() => onTodayPress && onTodayPress()}
         style={{

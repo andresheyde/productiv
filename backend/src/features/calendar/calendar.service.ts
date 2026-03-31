@@ -26,6 +26,10 @@ interface DeleteCalendarEventInput {
   calendarId: string;
 }
 
+const PRODUCTIV_CALENDAR_SUMMARY = "Productiv";
+const PRODUCTIV_CALENDAR_DESCRIPTION =
+  "Managed by Productiv for scheduled events.";
+
 export async function getMergedCalendarEvents(
   tokens: Credentials,
   startDate: Date,
@@ -100,6 +104,7 @@ export async function createGoogleCalendarEvent(
   oauth2Client.setCredentials(tokens);
 
   const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+  const productivCalendar = await getOrCreateProductivCalendar(calendar);
 
   console.log(`[Events] Creating Google Calendar event: ${input.title}`);
 
@@ -115,11 +120,15 @@ export async function createGoogleCalendarEvent(
   };
 
   const response = await calendar.events.insert({
-    calendarId: "primary",
+    calendarId: productivCalendar.id,
     requestBody,
   });
 
-  return response.data;
+  return {
+    ...response.data,
+    sourceCalendarId: productivCalendar.id,
+    sourceCalendarName: productivCalendar.summary,
+  };
 }
 
 export async function updateGoogleCalendarEvent(
@@ -168,4 +177,42 @@ export async function deleteGoogleCalendarEvent(
     calendarId: input.calendarId,
     eventId: input.eventId,
   });
+}
+
+async function getOrCreateProductivCalendar(
+  calendar: calendar_v3.Calendar,
+): Promise<{ id: string; summary: string }> {
+  const calendarListResponse = await calendar.calendarList.list();
+  const existingCalendar = (calendarListResponse.data.items ?? []).find(
+    (
+      item,
+    ): item is calendar_v3.Schema$CalendarListEntry & {
+      id: string;
+      summary: string;
+    } =>
+      typeof item.id === "string" &&
+      item.id.length > 0 &&
+      typeof item.summary === "string" &&
+      item.summary === PRODUCTIV_CALENDAR_SUMMARY,
+  );
+
+  if (existingCalendar) {
+    return {
+      id: existingCalendar.id,
+      summary: existingCalendar.summary,
+    };
+  }
+
+  console.log("[Calendars] Creating Productiv calendar...");
+  const insertResponse = await calendar.calendars.insert({
+    requestBody: {
+      summary: PRODUCTIV_CALENDAR_SUMMARY,
+      description: PRODUCTIV_CALENDAR_DESCRIPTION,
+    },
+  });
+
+  return {
+    id: insertResponse.data.id ?? PRODUCTIV_CALENDAR_SUMMARY,
+    summary: insertResponse.data.summary ?? PRODUCTIV_CALENDAR_SUMMARY,
+  };
 }

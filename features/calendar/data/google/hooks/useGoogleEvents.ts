@@ -7,6 +7,8 @@ import {
 
 import type { CalendarEvent } from "../../../types";
 
+const GOOGLE_EVENTS_REFRESH_INTERVAL_MS = 30000;
+
 export default function useGoogleEvents(
   authId: string | null,
   leftDate: Date,
@@ -23,7 +25,7 @@ export default function useGoogleEvents(
     };
   }, []);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     if (!authId) {
       setEvents([]);
       setError(null);
@@ -34,26 +36,38 @@ export default function useGoogleEvents(
     setLoading(true);
     setError(null);
 
-    fetchScheduleEvents(authId, leftDate, rightDate)
-      .then((result) => {
-        if (isMounted.current) {
-          setEvents(result.map(mapBackendScheduleEventToCalendarEvent));
-          setLoading(false);
-        }
-      })
-      .catch((reason) => {
-        if (isMounted.current) {
-          setLoading(false);
-          setError(
-            reason instanceof Error ? reason : new Error(String(reason)),
-          );
-        }
-      });
+    try {
+      const result = await fetchScheduleEvents(authId, leftDate, rightDate);
+
+      if (isMounted.current) {
+        setEvents(result.map(mapBackendScheduleEventToCalendarEvent));
+        setLoading(false);
+      }
+    } catch (reason) {
+      if (isMounted.current) {
+        setLoading(false);
+        setError(reason instanceof Error ? reason : new Error(String(reason)));
+      }
+    }
   }, [authId, leftDate.toISOString(), rightDate.toISOString()]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!authId) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      refresh();
+    }, GOOGLE_EVENTS_REFRESH_INTERVAL_MS);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [authId, refresh]);
 
   return {
     googleEvents: events,

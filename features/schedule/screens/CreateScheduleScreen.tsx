@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/features/auth/AuthProvider";
+import { createGoogleCalendarEvent } from "@/features/calendar/api/googleCalendarApi";
 import { connectGoogleCalendar } from "@/features/auth/googleAuth";
 import {
   type BackendScheduleEvent,
@@ -29,6 +30,7 @@ import {
 } from "@/features/schedule/api/scheduleApi";
 
 type PickerTarget = "start" | "end" | null;
+type ScheduleProposalState = "idle" | "accepted" | "declined";
 
 const MAX_RANGE_IN_DAYS = 7;
 
@@ -40,11 +42,16 @@ export default function CreateScheduleScreen() {
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [events, setEvents] = useState<BackendScheduleEvent[]>([]);
+  const [showSchedulePreview, setShowSchedulePreview] = useState(false);
+  const [proposalState, setProposalState] =
+    useState<ScheduleProposalState>("idle");
+  const [isPublishingProposal, setIsPublishingProposal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { authId, isAuthenticated, clearAuthId, setAuthId } = useAuth();
   const availableDates = getAvailableDates(today, 21);
 
   const validationMessage = getValidationMessage(startDate, endDate, today);
+  const schedulePreviewDays = buildSchedulePreview(events, startDate, endDate);
   const canFetchEvents =
     isAuthenticated &&
     validationMessage === null &&
@@ -100,12 +107,59 @@ export default function CreateScheduleScreen() {
     try {
       const nextEvents = await fetchScheduleEvents(authId, startDate, endDate);
       setEvents(nextEvents);
+      setShowSchedulePreview(true);
+      setProposalState("idle");
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to fetch events.",
       );
     } finally {
       setIsLoadingEvents(false);
+    }
+  }
+
+  async function handleAcceptProposal() {
+    if (!authId) {
+      setErrorMessage("Connect Google before publishing a proposal.");
+      return;
+    }
+
+    const suggestedItems = schedulePreviewDays.flatMap((day) =>
+      day.items.filter((item) => item.kind === "suggested"),
+    );
+
+    if (suggestedItems.length === 0) {
+      setProposalState("accepted");
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsPublishingProposal(true);
+
+    try {
+      await Promise.all(
+        suggestedItems.map((item) =>
+          createGoogleCalendarEvent({
+            authId,
+            title: item.title,
+            description: "Created from a Productiv schedule proposal.",
+            startTime: item.startTime,
+            endTime: item.endTime,
+          }),
+        ),
+      );
+
+      const refreshedEvents = await fetchScheduleEvents(authId, startDate, endDate);
+      setEvents(refreshedEvents);
+      setProposalState("accepted");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to publish the proposed schedule.",
+      );
+    } finally {
+      setIsPublishingProposal(false);
     }
   }
 
@@ -172,8 +226,8 @@ export default function CreateScheduleScreen() {
               color: "#d9e7e3",
             }}
           >
-            Pick a future date range, connect Google Calendar, and preview the
-            events that will shape your schedule.
+            Pick a future date range, connect Google Calendar, and prepare a
+            schedule inside that selected window.
           </Text>
           <Link
             href="/calendar"
@@ -407,7 +461,7 @@ export default function CreateScheduleScreen() {
               color: "#1f2937",
             }}
           >
-            3. Preview events
+            3. Create schedule in selected range
           </Text>
           <Pressable
             onPress={handleFetchEvents}
@@ -415,7 +469,9 @@ export default function CreateScheduleScreen() {
             style={buttonStyle("#f6c453", !canFetchEvents)}
           >
             <Text style={buttonTextStyle("#1f2937")}>
-              {isLoadingEvents ? "Loading events..." : "Fetch events"}
+              {isLoadingEvents
+                ? "Preparing selected range..."
+                : "Create schedule in selected range"}
             </Text>
           </Pressable>
 
@@ -444,6 +500,141 @@ export default function CreateScheduleScreen() {
               Once you connect Google and fetch events, they’ll appear here as a
               simple schedule preview.
             </Text>
+          ) : null}
+
+          {showSchedulePreview ? (
+            <View
+              style={{
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: "#dfd6c8",
+                backgroundColor: "#fffaf1",
+                padding: 16,
+                gap: 14,
+                shadowColor: "#16423c",
+                shadowOpacity: 0.08,
+                shadowRadius: 12,
+                shadowOffset: { width: 0, height: 6 },
+                elevation: 4,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "700",
+                  color: "#16423c",
+                }}
+              >
+                Selected range preview
+              </Text>
+              <Text
+                style={{
+                  color: "#5f6b76",
+                  lineHeight: 20,
+                }}
+              >
+                Existing events are shown first. Open windows are filled with
+                placeholder tasks for now so we can preview the scheduling flow
+                before anything gets published.
+              </Text>
+
+              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                <Pressable
+                  onPress={handleAcceptProposal}
+                  disabled={isPublishingProposal}
+                  style={buttonStyle(
+                    proposalState === "accepted" ? "#16423c" : "#1f6f78",
+                    isPublishingProposal,
+                  )}
+                >
+                  <Text style={buttonTextStyle("#f4f1ea")}>
+                    {isPublishingProposal
+                      ? "Publishing to Productiv..."
+                      : proposalState === "accepted"
+                      ? "Proposal accepted"
+                      : "Accept proposal"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setProposalState("declined");
+                    setShowSchedulePreview(false);
+                  }}
+                  style={buttonStyle("#efe6d7")}
+                >
+                  <Text style={buttonTextStyle("#1f2937")}>Decline</Text>
+                </Pressable>
+              </View>
+
+              {proposalState === "accepted" ? (
+                <Text
+                  style={{
+                    color: "#166534",
+                    fontWeight: "600",
+                    lineHeight: 20,
+                  }}
+                >
+                  This proposal has been published to your Productiv Google
+                  Calendar.
+                </Text>
+              ) : null}
+
+              {schedulePreviewDays.map((day) => (
+                <View
+                  key={day.date.toISOString()}
+                  style={{
+                    gap: 8,
+                    borderTopWidth: 1,
+                    borderTopColor: "#eadfcd",
+                    paddingTop: 12,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontWeight: "700",
+                      color: "#1f2937",
+                    }}
+                  >
+                    {format(day.date, "EEEE, MMM d")}
+                  </Text>
+                  {day.items.length === 0 ? (
+                    <Text style={{ color: "#5f6b76" }}>
+                      No events or placeholder tasks in this range.
+                    </Text>
+                  ) : (
+                    day.items.map((item) => (
+                      <View
+                        key={`${day.date.toISOString()}-${item.id}`}
+                        style={{
+                          borderRadius: 14,
+                          backgroundColor:
+                            item.kind === "suggested" ? "#f6c453" : "#d9e7e3",
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          gap: 2,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontWeight: "700",
+                            color: "#1f2937",
+                          }}
+                        >
+                          {item.title}
+                        </Text>
+                        <Text style={{ color: "#344054" }}>
+                          {format(item.startTime, "h:mm a")} -{" "}
+                          {format(item.endTime, "h:mm a")}
+                          {item.kind === "suggested"
+                            ? " • Suggested task"
+                            : " • Google event"}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              ))}
+            </View>
           ) : null}
 
           {events.map((event) => (
@@ -483,6 +674,19 @@ type DateFieldProps = {
   label: string;
   value: Date;
   onPress: () => void;
+};
+
+type SchedulePreviewItem = {
+  id: string;
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  kind: "event" | "suggested";
+};
+
+type SchedulePreviewDay = {
+  date: Date;
+  items: SchedulePreviewItem[];
 };
 
 function DateField({ label, value, onPress }: DateFieldProps) {
@@ -539,6 +743,112 @@ function getAuthIdFromUrl(url: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+function buildSchedulePreview(
+  events: BackendScheduleEvent[],
+  startDate: Date,
+  endDate: Date,
+) {
+  const days = Array.from(
+    { length: differenceInCalendarDays(endDate, startDate) + 1 },
+    (_, index) => startOfDay(addDays(startDate, index)),
+  );
+
+  return days.map<SchedulePreviewDay>((date) => {
+    const dayEvents = events
+      .filter(
+        (event) =>
+          startOfDay(event.startTime).getTime() === date.getTime() && !event.allDay,
+      )
+      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+
+    const suggestedTasks = buildSuggestedTasksForDay(date, dayEvents);
+    const items = [
+      ...dayEvents.map<SchedulePreviewItem>((event) => ({
+        id: event.id,
+        title: event.title,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        kind: "event",
+      })),
+      ...suggestedTasks,
+    ].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+
+    return { date, items };
+  });
+}
+
+function buildSuggestedTasksForDay(
+  date: Date,
+  dayEvents: BackendScheduleEvent[],
+) {
+  const placeholderTitles = [
+    "Deep work block",
+    "Inbox cleanup",
+    "Workout",
+    "Project planning",
+    "Reading session",
+    "Admin catch-up",
+  ];
+
+  const dayStart = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    9,
+    0,
+  );
+  const dayEnd = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    17,
+    0,
+  );
+
+  const suggestedTasks: SchedulePreviewItem[] = [];
+  let cursor = dayStart;
+  let titleIndex = 0;
+
+  for (const event of dayEvents) {
+    if (cursor < event.startTime) {
+      const gapMinutes = Math.floor(
+        (event.startTime.getTime() - cursor.getTime()) / 60000,
+      );
+
+      if (gapMinutes >= 60 && suggestedTasks.length < 2) {
+        suggestedTasks.push({
+          id: `suggested-${date.toISOString()}-${titleIndex}`,
+          title: placeholderTitles[titleIndex % placeholderTitles.length],
+          startTime: cursor,
+          endTime: new Date(cursor.getTime() + 45 * 60000),
+          kind: "suggested",
+        });
+        titleIndex += 1;
+      }
+    }
+
+    if (event.endTime > cursor) {
+      cursor = event.endTime;
+    }
+  }
+
+  if (cursor < dayEnd && suggestedTasks.length < 2) {
+    const remainingMinutes = Math.floor((dayEnd.getTime() - cursor.getTime()) / 60000);
+
+    if (remainingMinutes >= 60) {
+      suggestedTasks.push({
+        id: `suggested-${date.toISOString()}-${titleIndex}`,
+        title: placeholderTitles[titleIndex % placeholderTitles.length],
+        startTime: cursor,
+        endTime: new Date(cursor.getTime() + 45 * 60000),
+        kind: "suggested",
+      });
+    }
+  }
+
+  return suggestedTasks;
 }
 
 function buttonStyle(backgroundColor: string, disabled = false) {

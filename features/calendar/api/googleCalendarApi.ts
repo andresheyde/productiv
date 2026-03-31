@@ -10,6 +10,8 @@ type CreateGoogleCalendarEventInput = {
 
 type GoogleCalendarEventResponse = {
   id?: string | null;
+  sourceCalendarId?: string | null;
+  sourceCalendarName?: string | null;
 };
 
 export async function createGoogleCalendarEvent(

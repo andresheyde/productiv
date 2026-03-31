@@ -243,6 +243,22 @@ export async function deleteCalendarEvent(
 
     return res.status(204).send();
   } catch (error) {
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? error.status
+        : typeof error === "object" &&
+            error !== null &&
+            "response" in error &&
+            typeof error.response === "object" &&
+            error.response !== null &&
+            "status" in error.response
+          ? error.response.status
+          : undefined;
+
+    if (status === 404 || status === 410) {
+      return res.status(204).send();
+    }
+
     console.error("[Events] Failed to delete calendar event", error);
     return res.status(500).json({ error: "Failed to delete calendar event" });
   }
