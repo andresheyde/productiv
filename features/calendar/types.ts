@@ -1,4 +1,8 @@
-export type CalendarEventSource = "productiv" | "google" | "device";
+export type CalendarEventSource =
+  | "productiv"
+  | "google"
+  | "device"
+  | "proposal";
 
 export type CalendarEvent = {
   id: string;
@@ -12,6 +16,7 @@ export type CalendarEvent = {
   googleCalendarEventId?: string;
   sourceCalendarId?: string;
   sourceCalendarName?: string;
+  proposalBlockId?: string;
 };
 
 export function calendarEventToString(event: CalendarEvent) {

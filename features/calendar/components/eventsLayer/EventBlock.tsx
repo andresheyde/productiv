@@ -56,6 +56,10 @@ function getEventBackground(event: CalendarEvent, selected: boolean) {
     return "#16423c";
   }
 
+  if (event.source === "proposal") {
+    return "#fde7a1";
+  }
+
   if (event.source === "google") {
     return "#d9e7e3";
   }
@@ -70,6 +74,10 @@ function getEventBackground(event: CalendarEvent, selected: boolean) {
 function getEventBorder(event: CalendarEvent, selected: boolean) {
   if (selected) {
     return "#0f2f2a";
+  }
+
+  if (event.source === "proposal") {
+    return "#d29d12";
   }
 
   if (event.source === "google") {

@@ -62,26 +62,28 @@ export default function StickyHeaderButtons({
         </Pressable>
       </View>
       <View style={{ flex: 1 }} />
-      <Pressable
-        onPress={() => onSyncPress && onSyncPress()}
-        disabled={isSyncing}
-        style={{
-          paddingHorizontal: 12,
-          paddingVertical: 6,
-          borderRadius: 999,
-          backgroundColor: isSyncing ? "#cbd5e1" : "#d9e7e3",
-          marginRight: 8,
-        }}
-      >
-        <Text
+      {onSyncPress ? (
+        <Pressable
+          onPress={() => onSyncPress()}
+          disabled={isSyncing}
           style={{
-            color: "#16423c",
-            fontWeight: "700",
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 999,
+            backgroundColor: isSyncing ? "#cbd5e1" : "#d9e7e3",
+            marginRight: 8,
           }}
         >
-          {isSyncing ? "Syncing..." : "Sync"}
-        </Text>
-      </Pressable>
+          <Text
+            style={{
+              color: "#16423c",
+              fontWeight: "700",
+            }}
+          >
+            {isSyncing ? "Syncing..." : "Sync"}
+          </Text>
+        </Pressable>
+      ) : null}
       <Pressable
         onPress={() => onTodayPress && onTodayPress()}
         style={{

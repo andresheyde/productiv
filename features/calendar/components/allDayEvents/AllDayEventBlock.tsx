@@ -38,6 +38,10 @@ export default function AllDayEventBlock({
 }
 
 function getEventBackground(event: CalendarEvent) {
+  if (event.source === "proposal") {
+    return "#fde7a1";
+  }
+
   if (event.source === "google") {
     return "#d9e7e3";
   }
@@ -50,6 +54,10 @@ function getEventBackground(event: CalendarEvent) {
 }
 
 function getEventBorder(event: CalendarEvent) {
+  if (event.source === "proposal") {
+    return "#d29d12";
+  }
+
   if (event.source === "google") {
     return "#1f6f78";
   }

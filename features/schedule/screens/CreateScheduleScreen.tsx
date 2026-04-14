@@ -1,6 +1,6 @@
 import * as Crypto from "expo-crypto";
 import { Link } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -13,7 +13,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/features/auth/AuthProvider";
 import { connectGoogleCalendar } from "@/features/auth/googleAuth";
+import ProposalCalendarPreview from "@/features/planning/components/ProposalCalendarPreview";
+import {
+  samplePlanningConversationDraftState,
+  samplePlanningConversationGeneratedPlan,
+  samplePlanningConversationMessages,
+} from "@/features/planning/dev/samplePlanningConversation";
 import { sendPlanningTurn } from "@/features/planning/api/planningApi";
+import { generateProposalBlocksFromPlan } from "@/features/planning/proposal/planToProposal";
+import type { ProposedScheduleBlock } from "@/features/planning/proposal/types";
 import {
   createEmptyDraftPlanningState,
   type GeneratedPlan,
@@ -28,11 +36,25 @@ export default function CreateScheduleScreen() {
     createEmptyDraftPlanningState(),
   );
   const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null);
+  const [proposalBlocks, setProposalBlocks] = useState<ProposedScheduleBlock[]>([]);
   const [composerValue, setComposerValue] = useState("");
   const [screenState, setScreenState] = useState<PlanningTurnStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPlanReviewExpanded, setIsPlanReviewExpanded] = useState(false);
 
   const isWaitingForResponse = screenState === "waiting_for_response";
+  const hasProposal = generatedPlan !== null;
+
+  useEffect(() => {
+    if (!generatedPlan) {
+      setProposalBlocks([]);
+      setIsPlanReviewExpanded(false);
+      return;
+    }
+
+    setProposalBlocks(generateProposalBlocksFromPlan(generatedPlan));
+    setIsPlanReviewExpanded(false);
+  }, [generatedPlan]);
 
   async function handleConnectGoogle() {
     setErrorMessage(null);
@@ -114,6 +136,14 @@ export default function CreateScheduleScreen() {
           : "Failed to process planning turn.",
       );
     }
+  }
+
+  function handleLoadSamplePlan() {
+    setMessages(samplePlanningConversationMessages);
+    setDraftPlanningState(samplePlanningConversationDraftState);
+    setGeneratedPlan(samplePlanningConversationGeneratedPlan);
+    setScreenState("draft_ready");
+    setErrorMessage(null);
   }
 
   return (
@@ -226,6 +256,27 @@ export default function CreateScheduleScreen() {
                 : "Calendar linking stays available here for later scheduling work."}
             </Text>
           </View>
+          {__DEV__ ? (
+            <Pressable
+              onPress={handleLoadSamplePlan}
+              style={{
+                alignSelf: "flex-start",
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 14,
+                backgroundColor: "#efe6d7",
+              }}
+            >
+              <Text
+                style={{
+                  color: "#1f2937",
+                  fontWeight: "700",
+                }}
+              >
+                Load sample planning example
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View
@@ -415,64 +466,106 @@ export default function CreateScheduleScreen() {
           </View>
         </View>
 
+        {hasProposal ? (
+          <ProposalCalendarPreview
+            proposalBlocks={proposalBlocks}
+            authId={authId}
+            isAuthenticated={isAuthenticated}
+          />
+        ) : null}
+
         {generatedPlan ? (
           <View
             style={{
               backgroundColor: "#fffdf8",
               borderRadius: 20,
               padding: 18,
-              gap: 14,
+              gap: 12,
               borderWidth: 1,
               borderColor: "#dfd6c8",
             }}
           >
-            <Text
+            <Pressable
+              onPress={() => setIsPlanReviewExpanded((current) => !current)}
               style={{
-                fontSize: 20,
-                fontWeight: "700",
-                color: "#1f2937",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
-              Draft plan review
-            </Text>
-            <PlanSection label="Direction" value={generatedPlan.direction} />
-            <PlanSection
-              label="Medium-term goal"
-              value={generatedPlan.mediumTermGoal}
-            />
-            <PlanListSection
-              label="30-day performance goals"
-              items={generatedPlan.thirtyDayPerformanceGoals}
-            />
-            <PlanListSection
-              label="14-day performance goals"
-              items={generatedPlan.fourteenDayPerformanceGoals}
-            />
-            <PlanSection
-              label="Time availability"
-              value={generatedPlan.timeAvailability}
-            />
-            <PlanListSection
-              label="Time protection plan"
-              items={generatedPlan.timeProtectionPlan}
-            />
-            <PlanListSection
-              label="Limiting habits"
-              items={generatedPlan.limitingHabits}
-            />
-            <PlanListSection
-              label="Scripted actions"
-              items={generatedPlan.scriptedActions}
-            />
-            <PlanListSection
-              label="Environmental optimizations"
-              items={generatedPlan.environmentalOptimizations}
-            />
-            <PlanListSection
-              label="Constraints"
-              items={generatedPlan.constraints}
-            />
-            <PlanSection label="Summary" value={generatedPlan.summary} />
+              <View style={{ gap: 4 }}>
+                <Text
+                  style={{
+                    fontSize: 20,
+                    fontWeight: "700",
+                    color: "#1f2937",
+                  }}
+                >
+                  Draft plan review
+                </Text>
+                <Text
+                  style={{
+                    color: "#5f6b76",
+                  }}
+                >
+                  {isPlanReviewExpanded
+                    ? "Hide the supporting plan details."
+                    : "Expand to inspect the reasoning behind the proposal."}
+                </Text>
+              </View>
+              <Text
+                style={{
+                  color: "#16423c",
+                  fontWeight: "700",
+                  fontSize: 18,
+                }}
+              >
+                {isPlanReviewExpanded ? "Hide" : "Show"}
+              </Text>
+            </Pressable>
+
+            {isPlanReviewExpanded ? (
+              <>
+                <PlanSection label="Direction" value={generatedPlan.direction} />
+                <PlanSection
+                  label="Medium-term goal"
+                  value={generatedPlan.mediumTermGoal}
+                />
+                <PlanListSection
+                  label="30-day performance goals"
+                  items={generatedPlan.thirtyDayPerformanceGoals}
+                />
+                <PlanListSection
+                  label="14-day performance goals"
+                  items={generatedPlan.fourteenDayPerformanceGoals}
+                />
+                <PlanSection
+                  label="Time availability"
+                  value={generatedPlan.timeAvailability}
+                />
+                <PlanListSection
+                  label="Time protection plan"
+                  items={generatedPlan.timeProtectionPlan}
+                />
+                <PlanListSection
+                  label="Limiting habits"
+                  items={generatedPlan.limitingHabits}
+                />
+                <PlanListSection
+                  label="Scripted actions"
+                  items={generatedPlan.scriptedActions}
+                />
+                <PlanListSection
+                  label="Environmental optimizations"
+                  items={generatedPlan.environmentalOptimizations}
+                />
+                <PlanListSection
+                  label="Constraints"
+                  items={generatedPlan.constraints}
+                />
+                <PlanSection label="Summary" value={generatedPlan.summary} />
+              </>
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
