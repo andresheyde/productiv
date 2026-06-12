@@ -6,25 +6,17 @@ import {
 } from "date-fns";
 import type { Request, Response } from "express";
 
+import { getSessionCredentialsFromRequest } from "../../shared/auth/session.ts";
 import { maxScheduleRangeDays } from "../../shared/config/app-config.ts";
-import { getAuthTokens } from "../../shared/stores/auth-store.ts";
 import { getMergedCalendarEvents } from "./calendar.service.ts";
 
 interface CalendarEventsQuery {
-  authId?: string;
   startDate?: string;
   endDate?: string;
 }
 
-export async function getCalendarEvents(
-  req: Request<{}, {}, {}, CalendarEventsQuery>,
-  res: Response,
-) {
-  const { authId, startDate, endDate } = req.query;
-
-  if (typeof authId !== "string" || authId.length === 0) {
-    return res.status(400).json({ error: "Missing authId parameter" });
-  }
+export async function getCalendarEvents(req: Request, res: Response) {
+  const { startDate, endDate } = req.query as CalendarEventsQuery;
 
   if (typeof startDate !== "string" || typeof endDate !== "string") {
     return res
@@ -59,10 +51,12 @@ export async function getCalendarEvents(
       .json({ error: "Date range must be within 7 days" });
   }
 
-  const tokens = getAuthTokens(authId);
+  const tokens = getSessionCredentialsFromRequest(req);
 
   if (!tokens) {
-    return res.status(401).json({ error: "Invalid or expired authId" });
+    return res
+      .status(401)
+      .json({ error: "Missing, invalid, or expired Google session" });
   }
 
   try {

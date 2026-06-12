@@ -1,4 +1,4 @@
-import { apiBaseUrl } from "@/features/shared/api/config";
+import { apiRequest } from "@/features/shared/api/request";
 
 export type BackendScheduleEvent = {
   id: string;
@@ -21,25 +21,18 @@ type GoogleCalendarApiEvent = {
 };
 
 export async function fetchScheduleEvents(
-  authId: string,
   startDate: Date,
   endDate: Date,
+  sessionToken?: string | null,
 ) {
   const params = new URLSearchParams({
-    authId,
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
   });
 
-  const response = await fetch(`${apiBaseUrl}/calendar/events?${params}`);
-
-  if (!response.ok) {
-    const errorBody = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-
-    throw new Error(errorBody?.error ?? "Failed to fetch schedule events");
-  }
+  const response = await apiRequest(`/calendar/events?${params}`, {
+    sessionToken,
+  });
 
   const payload = (await response.json()) as GoogleCalendarApiEvent[];
   return payload

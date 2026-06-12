@@ -39,6 +39,32 @@ Run `npm run deploy` to [deploy to production](https://docs.expo.dev/eas/workflo
 
 Expo offers hosting for websites and API functions via EAS Hosting. See the [Getting Started](https://docs.expo.dev/eas/hosting/get-started/) guide to learn more.
 
+## Vercel deployment
+
+This project can be split into two Vercel Hobby projects:
+
+- **Productiv web** with the repository root as the project root.
+- **Productiv API** with `backend` as the project root.
+
+### Web project
+
+- `vercel.json` exports the Expo web app to `dist`.
+- Set `EXPO_PUBLIC_API_BASE_URL` to your deployed API origin, for example `https://api.productiv.your-domain.com`.
+- Add the custom domain or subdomain you want to use, for example `productiv.your-domain.com`.
+
+### API project
+
+- Use `backend` as the Vercel project root so the Express app in `src/app.ts` is deployed directly.
+- Set the environment variables from [`backend/.env.example`](./backend/.env.example).
+- `WEB_APP_URL` should match the deployed Productiv web origin exactly.
+- `GOOGLE_REDIRECT_URI` should point to the deployed callback route on the API domain.
+
+### Auth model
+
+- Web requests use an encrypted `httpOnly` session cookie.
+- Native redirects can still receive a signed session token through the callback URL for local app state.
+- Calendar requests no longer send `authId`; they use either the session cookie or the bearer session token.
+
 
 ## Get a fresh project
 

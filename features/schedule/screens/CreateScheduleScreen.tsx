@@ -27,6 +27,8 @@ import {
   type BackendScheduleEvent,
   fetchScheduleEvents,
 } from "@/features/schedule/api/scheduleApi";
+import { ApiError } from "@/features/shared/api/request";
+import { getSessionTokenFromUrl } from "@/features/schedule/utils/scheduleAuth";
 
 type PickerTarget = "start" | "end" | null;
 
@@ -41,11 +43,19 @@ export default function CreateScheduleScreen() {
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [events, setEvents] = useState<BackendScheduleEvent[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const { authId, isAuthenticated, clearAuthId, setAuthId } = useAuth();
+  const {
+    clearSession,
+    isAuthenticated,
+    isAuthReady,
+    refreshAuthState,
+    sessionToken,
+    setSessionToken,
+  } = useAuth();
   const availableDates = getAvailableDates(today, 21);
 
   const validationMessage = getValidationMessage(startDate, endDate, today);
   const canFetchEvents =
+    isAuthReady &&
     isAuthenticated &&
     validationMessage === null &&
     !isConnectingGoogle &&
@@ -59,10 +69,14 @@ export default function CreateScheduleScreen() {
       const result = await connectGoogleCalendar();
 
       if (result.type === "success") {
-        const nextAuthId = getAuthIdFromUrl(result.url);
+        const nextSessionToken = getSessionTokenFromUrl(result.url);
 
-        if (nextAuthId) {
-          setAuthId(nextAuthId);
+        if (nextSessionToken) {
+          setSessionToken(nextSessionToken);
+          return;
+        }
+
+        if (await refreshAuthState()) {
           return;
         }
       }
@@ -70,7 +84,9 @@ export default function CreateScheduleScreen() {
       if (result.type === "cancel" || result.type === "dismiss") {
         setErrorMessage("Google authentication was cancelled.");
       } else if (result.type === "success") {
-        setErrorMessage("Google authentication finished, but no authId was returned.");
+        setErrorMessage(
+          "Google authentication finished, but no session was created.",
+        );
       }
     } catch (error) {
       setErrorMessage(
@@ -84,7 +100,7 @@ export default function CreateScheduleScreen() {
   }
 
   async function handleFetchEvents() {
-    if (!authId) {
+    if (!isAuthenticated) {
       setErrorMessage("Connect Google before fetching events.");
       return;
     }
@@ -98,15 +114,31 @@ export default function CreateScheduleScreen() {
     setIsLoadingEvents(true);
 
     try {
-      const nextEvents = await fetchScheduleEvents(authId, startDate, endDate);
+      const nextEvents = await fetchScheduleEvents(
+        startDate,
+        endDate,
+        sessionToken,
+      );
       setEvents(nextEvents);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await handleDisconnect();
+        setErrorMessage("Your Google session expired. Connect Google again.");
+        return;
+      }
+
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to fetch events.",
       );
     } finally {
       setIsLoadingEvents(false);
     }
+  }
+
+  async function handleDisconnect() {
+    await clearSession();
+    setEvents([]);
+    setErrorMessage(null);
   }
 
   function handleDateChange(
@@ -352,13 +384,16 @@ export default function CreateScheduleScreen() {
           </Text>
           <Text
             style={{
-              color: isAuthenticated ? "#166534" : "#5f6b76",
+              color:
+                !isAuthReady || isAuthenticated ? "#166534" : "#5f6b76",
               fontWeight: "600",
             }}
           >
-            {isAuthenticated
-              ? "Google Calendar connected"
-              : "Google Calendar not connected yet"}
+            {!isAuthReady
+              ? "Checking Google connection..."
+              : isAuthenticated
+                ? "Google Calendar connected"
+                : "Google Calendar not connected yet"}
           </Text>
           <View
             style={{
@@ -379,8 +414,7 @@ export default function CreateScheduleScreen() {
             {isAuthenticated ? (
               <Pressable
                 onPress={() => {
-                  clearAuthId();
-                  setEvents([]);
+                  void handleDisconnect();
                 }}
                 style={buttonStyle("#efe6d7")}
               >
@@ -526,19 +560,6 @@ function getAvailableDates(today: Date, numberOfDays: number) {
   return Array.from({ length: numberOfDays }, (_, index) =>
     addDays(today, index),
   );
-}
-
-function getAuthIdFromUrl(url: string | null | undefined) {
-  if (!url) {
-    return null;
-  }
-
-  try {
-    const parsedUrl = new URL(url);
-    return parsedUrl.searchParams.get("authId");
-  } catch {
-    return null;
-  }
 }
 
 function buttonStyle(backgroundColor: string, disabled = false) {

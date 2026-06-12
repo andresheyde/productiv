@@ -1,23 +1,31 @@
 import { useEffect } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { useAuth } from "@/features/auth/AuthProvider";
 
+WebBrowser.maybeCompleteAuthSession();
+
 export default function AuthCallbackScreen() {
-  const { authId } = useLocalSearchParams<{ authId?: string }>();
-  const { setAuthId } = useAuth();
+  const { sessionToken } = useLocalSearchParams<{ sessionToken?: string }>();
+  const { refreshAuthState, setSessionToken } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (typeof authId !== "string" || authId.length === 0) {
+    async function completeAuthFlow() {
+      if (typeof sessionToken === "string" && sessionToken.length > 0) {
+        setSessionToken(sessionToken);
+        router.replace("/");
+        return;
+      }
+
+      await refreshAuthState();
       router.replace("/");
-      return;
     }
 
-    setAuthId(authId);
-    router.replace("/");
-  }, [authId, router, setAuthId]);
+    void completeAuthFlow();
+  }, [refreshAuthState, router, sessionToken, setSessionToken]);
 
   return (
     <View
