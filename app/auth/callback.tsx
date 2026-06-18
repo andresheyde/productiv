@@ -1,23 +1,37 @@
 import { useEffect } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { useAuth } from "@/features/auth/AuthProvider";
 
+WebBrowser.maybeCompleteAuthSession();
+
 export default function AuthCallbackScreen() {
-  const { authId } = useLocalSearchParams<{ authId?: string }>();
-  const { setAuthId } = useAuth();
+  const { returnTo, sessionToken } = useLocalSearchParams<{
+    returnTo?: string;
+    sessionToken?: string;
+  }>();
+  const { refreshAuthState, setSessionToken } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (typeof authId !== "string" || authId.length === 0) {
-      router.replace("/");
-      return;
+    async function completeAuthFlow() {
+      const nextRoute =
+        returnTo === "/schedule" || returnTo === "/calendar" ? returnTo : "/";
+
+      if (typeof sessionToken === "string" && sessionToken.length > 0) {
+        setSessionToken(sessionToken);
+        router.replace(nextRoute as never);
+        return;
+      }
+
+      await refreshAuthState();
+      router.replace(nextRoute as never);
     }
 
-    setAuthId(authId);
-    router.replace("/");
-  }, [authId, router, setAuthId]);
+    void completeAuthFlow();
+  }, [refreshAuthState, returnTo, router, sessionToken, setSessionToken]);
 
   return (
     <View

@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useAuth } from "@/features/auth/AuthProvider";
 import {
   fetchScheduleEvents,
   type BackendScheduleEvent,
 } from "@/features/schedule/api/scheduleApi";
+import { ApiError } from "@/features/shared/api/request";
 
 import type { CalendarEvent } from "../../../types";
 
 const GOOGLE_EVENTS_REFRESH_INTERVAL_MS = 30000;
 
-export default function useGoogleEvents(
-  authId: string | null,
-  leftDate: Date,
-  rightDate: Date,
-) {
+export default function useGoogleEvents(leftDate: Date, rightDate: Date) {
   const isMounted = useRef(true);
+  const { clearSession, isAuthenticated, sessionToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -26,7 +25,7 @@ export default function useGoogleEvents(
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!authId) {
+    if (!isAuthenticated) {
       setEvents([]);
       setError(null);
       setLoading(false);
@@ -37,26 +36,44 @@ export default function useGoogleEvents(
     setError(null);
 
     try {
-      const result = await fetchScheduleEvents(authId, leftDate, rightDate);
+      const result = await fetchScheduleEvents(leftDate, rightDate, sessionToken);
 
       if (isMounted.current) {
         setEvents(result.map(mapBackendScheduleEventToCalendarEvent));
         setLoading(false);
       }
     } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        await clearSession();
+
+        if (isMounted.current) {
+          setEvents([]);
+          setLoading(false);
+          setError(new Error("Your Google session expired. Connect Google again."));
+        }
+
+        return;
+      }
+
       if (isMounted.current) {
         setLoading(false);
         setError(reason instanceof Error ? reason : new Error(String(reason)));
       }
     }
-  }, [authId, leftDate.toISOString(), rightDate.toISOString()]);
+  }, [
+    clearSession,
+    isAuthenticated,
+    leftDate.toISOString(),
+    rightDate.toISOString(),
+    sessionToken,
+  ]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   useEffect(() => {
-    if (!authId) {
+    if (!isAuthenticated) {
       return;
     }
 
@@ -67,7 +84,7 @@ export default function useGoogleEvents(
     return () => {
       clearInterval(intervalId);
     };
-  }, [authId, refresh]);
+  }, [isAuthenticated, refresh]);
 
   return {
     googleEvents: events,

@@ -5,8 +5,56 @@ export const openAiModel = process.env.OPENAI_MODEL;
 export const openAiApiBaseUrl =
   process.env.OPENAI_API_BASE_URL ?? "https://api.openai.com/v1";
 
+const configuredDatabaseUrl =
+  process.env.DATABASE_URL?.trim() ?? process.env.SUPABASE_DB_URL?.trim();
+const configuredDirectDatabaseUrl =
+  process.env.DIRECT_DATABASE_URL?.trim() ??
+  process.env.SUPABASE_DB_DIRECT_URL?.trim() ??
+  configuredDatabaseUrl;
+const configuredDatabaseSslMode = process.env.DATABASE_SSL_MODE?.trim();
+
+export const databaseUrl = configuredDatabaseUrl ?? null;
+export const directDatabaseUrl = configuredDirectDatabaseUrl ?? null;
+export const databaseSslMode =
+  configuredDatabaseSslMode === "disable" ? "disable" : "require";
+export const supabaseProjectUrl =
+  process.env.SUPABASE_PROJECT_URL?.trim() ?? null;
+export const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() ?? null;
+export const supabaseServiceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? null;
+
 export const googleScopes = [
   "https://www.googleapis.com/auth/calendar",
 ];
 
 export const maxScheduleRangeDays = 7;
+
+const defaultDevelopmentSessionSecret =
+  "productiv-local-session-secret-change-me";
+const defaultWebAppUrl = "http://localhost:8081";
+const developmentNativeSchemes = ["productiv", "exp", "exps"] as const;
+
+export const isProduction = process.env.NODE_ENV === "production";
+
+const configuredSessionSecret = process.env.SESSION_SECRET?.trim();
+if (isProduction && !configuredSessionSecret) {
+  throw new Error("SESSION_SECRET is required in production");
+}
+
+const configuredWebAppUrl = process.env.WEB_APP_URL?.trim();
+if (isProduction && !configuredWebAppUrl) {
+  throw new Error("WEB_APP_URL is required in production");
+}
+
+if (isProduction && !configuredDatabaseUrl) {
+  throw new Error("DATABASE_URL is required in production");
+}
+
+export const sessionSecret =
+  configuredSessionSecret ?? defaultDevelopmentSessionSecret;
+export const webAppUrl = configuredWebAppUrl ?? defaultWebAppUrl;
+export const webAppOrigin = new URL(webAppUrl).origin;
+export const sessionCookieName = "productiv_session";
+export const sessionCookieMaxAgeSeconds = 60 * 60 * 24 * 30;
+export const nativeAppScheme = "productiv";
+export const nativeDevelopmentSchemes = developmentNativeSchemes;

@@ -16,7 +16,6 @@ import type { ProposedScheduleBlock } from "@/features/planning/proposal/types";
 
 type ProposalCalendarPreviewProps = {
   proposalBlocks: ProposedScheduleBlock[];
-  authId: string | null;
   isAuthenticated: boolean;
 };
 
@@ -24,7 +23,6 @@ const NUM_DAYS = 7;
 
 export default function ProposalCalendarPreview({
   proposalBlocks,
-  authId,
   isAuthenticated,
 }: ProposalCalendarPreviewProps) {
   const [leftDate, setLeftDate] = useState(() =>
@@ -34,11 +32,12 @@ export default function ProposalCalendarPreview({
   const googleFetchEndDate = addDays(leftDate, NUM_DAYS - 1);
   const columnWidth =
     (useWindowDimensions().width - TIME_GUTTER_WIDTH) / NUM_DAYS;
-  const { googleEvents, googleEventsLoading, googleEventsRefresh } = useGoogleEvents(
-    authId,
-    leftDate,
-    googleFetchEndDate,
-  );
+  const {
+    googleEvents,
+    googleEventsError,
+    googleEventsLoading,
+    googleEventsRefresh,
+  } = useGoogleEvents(leftDate, googleFetchEndDate);
 
   const proposalEvents = useMemo(
     () => proposalBlocksToCalendarEvents(proposalBlocks, leftDate),
@@ -114,6 +113,19 @@ export default function ProposalCalendarPreview({
         >
           A plan exists, but no schedule blocks could be derived from it yet.
           Expand the plan details and adjust the prompts or sample plan content.
+        </Text>
+      ) : null}
+
+      {googleEventsError ? (
+        <Text
+          style={{
+            color: "#9b2c2c",
+            backgroundColor: "#fce8e8",
+            padding: 12,
+            borderRadius: 14,
+          }}
+        >
+          {googleEventsError.message}
         </Text>
       ) : null}
 

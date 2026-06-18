@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.ts",
+    "dev": "node src/server.ts",
+    "dev:watch": "node --watch src/server.ts",
+    "db:migrate": "node src/scripts/db-migrate.ts",
+    "db:ping": "node src/scripts/db-ping.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -11,9 +14,12 @@
     "dotenv": "^17.3.1",
     "express": "^4.22.1",
     "google-auth-library": "^10.6.1",
-    "googleapis": "^171.4.0"
+    "googleapis": "^171.4.0",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.7.2",
+    "@types/pg": "^8.15.5"
   }
 }

@@ -1,8 +1,8 @@
 import { differenceInCalendarDays, isBefore, isValid, startOfDay } from "date-fns";
 import type { Request, Response } from "express";
 
+import { getSessionCredentialsFromRequest } from "../../shared/auth/session.ts";
 import { maxScheduleRangeDays } from "../../shared/config/app-config.ts";
-import { getAuthTokens } from "../../shared/stores/auth-store.ts";
 import {
   createGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
@@ -11,13 +11,11 @@ import {
 } from "./calendar.service.ts";
 
 interface CalendarEventsQuery {
-  authId?: string;
   startDate?: string;
   endDate?: string;
 }
 
 interface CreateCalendarEventBody {
-  authId?: string;
   title?: string;
   description?: string;
   startTime?: string;
@@ -32,8 +30,11 @@ interface UpdateCalendarEventBody extends CreateCalendarEventBody {
   sourceCalendarId?: string;
 }
 
+interface DeleteCalendarEventParams {
+  eventId?: string;
+}
+
 interface DeleteCalendarEventQuery {
-  authId?: string;
   sourceCalendarId?: string;
 }
 
@@ -41,11 +42,7 @@ export async function getCalendarEvents(
   req: Request<{}, {}, {}, CalendarEventsQuery>,
   res: Response,
 ) {
-  const { authId, startDate, endDate } = req.query;
-
-  if (typeof authId !== "string" || authId.length === 0) {
-    return res.status(400).json({ error: "Missing authId parameter" });
-  }
+  const { startDate, endDate } = req.query;
 
   if (typeof startDate !== "string" || typeof endDate !== "string") {
     return res
@@ -75,10 +72,12 @@ export async function getCalendarEvents(
       .json({ error: "Date range must be within 7 days" });
   }
 
-  const tokens = getAuthTokens(authId);
+  const tokens = getSessionCredentialsFromRequest(req);
 
   if (!tokens) {
-    return res.status(401).json({ error: "Invalid or expired authId" });
+    return res
+      .status(401)
+      .json({ error: "Missing, invalid, or expired Google session" });
   }
 
   try {
@@ -89,6 +88,12 @@ export async function getCalendarEvents(
     );
     return res.json(mergedEvents);
   } catch (error) {
+    if (isGoogleSessionError(error)) {
+      return res
+        .status(401)
+        .json({ error: "Google session expired. Connect Google again." });
+    }
+
     console.error("[Events] Failed to fetch calendar events", error);
     return res.status(500).json({ error: "Failed to fetch calendar events" });
   }
@@ -98,11 +103,7 @@ export async function createCalendarEvent(
   req: Request<{}, {}, CreateCalendarEventBody>,
   res: Response,
 ) {
-  const { authId, title, description, startTime, endTime } = req.body;
-
-  if (typeof authId !== "string" || authId.length === 0) {
-    return res.status(400).json({ error: "Missing authId" });
-  }
+  const { title, description, startTime, endTime } = req.body;
 
   if (typeof startTime !== "string" || typeof endTime !== "string") {
     return res.status(400).json({ error: "Missing startTime or endTime" });
@@ -119,14 +120,16 @@ export async function createCalendarEvent(
     return res.status(400).json({ error: "endTime must be after startTime" });
   }
 
-  const tokens = getAuthTokens(authId);
+  const tokens = getSessionCredentialsFromRequest(req);
 
   if (!tokens) {
-    return res.status(401).json({ error: "Invalid or expired authId" });
+    return res
+      .status(401)
+      .json({ error: "Missing, invalid, or expired Google session" });
   }
 
   try {
-    const createInput = {
+    const createdEvent = await createGoogleCalendarEvent(tokens, {
       title:
         typeof title === "string" && title.trim().length > 0
           ? title.trim()
@@ -136,11 +139,16 @@ export async function createCalendarEvent(
       ...(typeof description === "string" && description.trim().length > 0
         ? { description: description.trim() }
         : {}),
-    };
-    const createdEvent = await createGoogleCalendarEvent(tokens, createInput);
+    });
 
     return res.status(201).json(createdEvent);
   } catch (error) {
+    if (isGoogleSessionError(error)) {
+      return res
+        .status(401)
+        .json({ error: "Google session expired. Connect Google again." });
+    }
+
     console.error("[Events] Failed to create calendar event", error);
     return res.status(500).json({ error: "Failed to create calendar event" });
   }
@@ -151,15 +159,10 @@ export async function updateCalendarEvent(
   res: Response,
 ) {
   const { eventId } = req.params;
-  const { authId, title, description, sourceCalendarId, startTime, endTime } =
-    req.body;
+  const { title, description, sourceCalendarId, startTime, endTime } = req.body;
 
   if (typeof eventId !== "string" || eventId.length === 0) {
     return res.status(400).json({ error: "Missing eventId" });
-  }
-
-  if (typeof authId !== "string" || authId.length === 0) {
-    return res.status(400).json({ error: "Missing authId" });
   }
 
   if (typeof sourceCalendarId !== "string" || sourceCalendarId.length === 0) {
@@ -181,14 +184,16 @@ export async function updateCalendarEvent(
     return res.status(400).json({ error: "endTime must be after startTime" });
   }
 
-  const tokens = getAuthTokens(authId);
+  const tokens = getSessionCredentialsFromRequest(req);
 
   if (!tokens) {
-    return res.status(401).json({ error: "Invalid or expired authId" });
+    return res
+      .status(401)
+      .json({ error: "Missing, invalid, or expired Google session" });
   }
 
   try {
-    const updateInput = {
+    const updatedEvent = await updateGoogleCalendarEvent(tokens, {
       eventId,
       calendarId: sourceCalendarId,
       title:
@@ -200,39 +205,42 @@ export async function updateCalendarEvent(
       ...(typeof description === "string" && description.trim().length > 0
         ? { description: description.trim() }
         : {}),
-    };
-    const updatedEvent = await updateGoogleCalendarEvent(tokens, updateInput);
+    });
 
     return res.json(updatedEvent);
   } catch (error) {
+    if (isGoogleSessionError(error)) {
+      return res
+        .status(401)
+        .json({ error: "Google session expired. Connect Google again." });
+    }
+
     console.error("[Events] Failed to update calendar event", error);
     return res.status(500).json({ error: "Failed to update calendar event" });
   }
 }
 
 export async function deleteCalendarEvent(
-  req: Request<UpdateCalendarEventParams, {}, {}, DeleteCalendarEventQuery>,
+  req: Request<DeleteCalendarEventParams, {}, {}, DeleteCalendarEventQuery>,
   res: Response,
 ) {
   const { eventId } = req.params;
-  const { authId, sourceCalendarId } = req.query;
+  const { sourceCalendarId } = req.query;
 
   if (typeof eventId !== "string" || eventId.length === 0) {
     return res.status(400).json({ error: "Missing eventId" });
-  }
-
-  if (typeof authId !== "string" || authId.length === 0) {
-    return res.status(400).json({ error: "Missing authId" });
   }
 
   if (typeof sourceCalendarId !== "string" || sourceCalendarId.length === 0) {
     return res.status(400).json({ error: "Missing sourceCalendarId" });
   }
 
-  const tokens = getAuthTokens(authId);
+  const tokens = getSessionCredentialsFromRequest(req);
 
   if (!tokens) {
-    return res.status(401).json({ error: "Invalid or expired authId" });
+    return res
+      .status(401)
+      .json({ error: "Missing, invalid, or expired Google session" });
   }
 
   try {
@@ -243,23 +251,49 @@ export async function deleteCalendarEvent(
 
     return res.status(204).send();
   } catch (error) {
-    const status =
-      typeof error === "object" && error !== null && "status" in error
-        ? error.status
-        : typeof error === "object" &&
-            error !== null &&
-            "response" in error &&
-            typeof error.response === "object" &&
-            error.response !== null &&
-            "status" in error.response
-          ? error.response.status
-          : undefined;
+    const status = getRemoteErrorStatus(error);
 
     if (status === 404 || status === 410) {
       return res.status(204).send();
     }
 
+    if (isGoogleSessionError(error)) {
+      return res
+        .status(401)
+        .json({ error: "Google session expired. Connect Google again." });
+    }
+
     console.error("[Events] Failed to delete calendar event", error);
     return res.status(500).json({ error: "Failed to delete calendar event" });
   }
+}
+
+function isGoogleSessionError(error: unknown) {
+  const status = getRemoteErrorStatus(error);
+  return status === 401 || status === 403;
+}
+
+function getRemoteErrorStatus(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "response" in error &&
+    typeof error.response === "object" &&
+    error.response !== null &&
+    "status" in error.response &&
+    typeof error.response.status === "number"
+  ) {
+    return error.response.status;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "number"
+  ) {
+    return error.code;
+  }
+
+  return undefined;
 }

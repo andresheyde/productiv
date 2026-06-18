@@ -3,10 +3,12 @@ import * as WebBrowser from "expo-web-browser";
 
 import { apiBaseUrl } from "@/features/shared/api/config";
 
-WebBrowser.maybeCompleteAuthSession();
-
-export async function connectGoogleCalendar() {
-  const redirectTo = Linking.createURL("/auth/callback");
+export async function connectGoogleCalendar(returnToPath: string = "/") {
+  const normalizedReturnPath =
+    returnToPath.startsWith("/") ? returnToPath : `/${returnToPath}`;
+  const redirectTo = Linking.createURL(
+    `/auth/callback?returnTo=${encodeURIComponent(normalizedReturnPath)}`,
+  );
   const authUrl = `${apiBaseUrl}/auth/google?redirectTo=${encodeURIComponent(
     redirectTo,
   )}`;

@@ -39,6 +39,48 @@ Run `npm run deploy` to [deploy to production](https://docs.expo.dev/eas/workflo
 
 Expo offers hosting for websites and API functions via EAS Hosting. See the [Getting Started](https://docs.expo.dev/eas/hosting/get-started/) guide to learn more.
 
+## Vercel deployment
+
+This project can be split into two Vercel Hobby projects:
+
+- **Productiv web** with the repository root as the project root.
+- **Productiv API** with `backend` as the project root.
+
+### Web project
+
+- `vercel.json` exports the Expo web app to `dist`.
+- Set `EXPO_PUBLIC_API_BASE_URL` to your deployed API origin, for example `https://api.productiv.your-domain.com`.
+- Add the custom domain or subdomain you want to use, for example `productiv.your-domain.com`.
+
+### API project
+
+- Use `backend` as the Vercel project root so the Express app in `src/app.ts` is deployed directly.
+- Set the environment variables from [`backend/.env.example`](./backend/.env.example).
+- `WEB_APP_URL` should match the deployed Productiv web origin exactly.
+- `GOOGLE_REDIRECT_URI` should point to the deployed callback route on the API domain.
+- Use Supabase Postgres for durable assistant data.
+- Set `DATABASE_URL` to the Supabase transaction-pooler URL for runtime traffic on Vercel.
+- Set `DIRECT_DATABASE_URL` to the direct Postgres connection string for migrations and schema changes.
+- Run `npm --prefix backend run db:migrate` after adding the Supabase credentials.
+- Run `npm --prefix backend run db:ping` to verify the backend can reach the configured runtime database.
+
+### Supabase setup
+
+1. Create a Supabase project.
+2. In the Supabase dashboard, open `Connect` on the project page.
+3. Copy the transaction pooler connection string into `DATABASE_URL`.
+4. Copy the direct Postgres connection string into `DIRECT_DATABASE_URL`.
+5. Copy the project URL, anon key, and service role key into the matching `SUPABASE_*` variables if you want future access to Supabase APIs beyond raw Postgres.
+6. Keep `DATABASE_SSL_MODE=require` unless you intentionally switch to a trusted local Postgres instance.
+7. Run `npm --prefix backend run db:migrate` to create the assistant tables.
+8. Run `npm --prefix backend run db:ping` to confirm the backend can connect.
+
+### Auth model
+
+- Web requests use an encrypted `httpOnly` session cookie.
+- Native redirects can still receive a signed session token through the callback URL for local app state.
+- Calendar requests no longer send `authId`; they use either the session cookie or the bearer session token.
+
 
 ## Get a fresh project
 

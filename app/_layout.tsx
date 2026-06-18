@@ -7,6 +7,7 @@ export default function RootLayout() {
     <AuthProvider>
       <Stack>
         <Stack.Screen name="index" options={{ title: "Planning Intake" }} />
+        <Stack.Screen name="schedule" options={{ title: "Create Schedule" }} />
         <Stack.Screen name="calendar" options={{ title: "Calendar" }} />
         <Stack.Screen
           name="auth/callback"

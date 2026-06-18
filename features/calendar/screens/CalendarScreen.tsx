@@ -16,6 +16,7 @@ import {
   MouseButton,
 } from "react-native-gesture-handler";
 import { useAuth } from "@/features/auth/AuthProvider";
+import { ApiError } from "@/features/shared/api/request";
 import {
   createGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
@@ -53,22 +54,10 @@ export default function CalendarScreen() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deletedEventIds, setDeletedEventIds] = useState<string[]>([]);
-  const { authId, isAuthenticated } = useAuth();
+  const { clearSession, isAuthenticated, sessionToken } = useAuth();
 
-  const {
-    deviceCalendars,
-    calendarsLoading,
-    calendarsError,
-    calendarsBlocked,
-    calendarsRefresh,
-  } = useDeviceCalendars();
-  const {
-    deviceEvents,
-    eventsLoading,
-    eventsError,
-    eventsBlocked,
-    eventsRefresh,
-  } = useDeviceEvents(
+  const { deviceCalendars } = useDeviceCalendars();
+  const { deviceEvents } = useDeviceEvents(
     deviceCalendars
       .map((calendar) => calendar.id)
       .slice()
@@ -76,11 +65,8 @@ export default function CalendarScreen() {
     leftDate,
     rightDate,
   );
-  const { googleEvents, googleEventsLoading, googleEventsRefresh } = useGoogleEvents(
-    authId,
-    leftDate,
-    googleFetchEndDate,
-  );
+  const { googleEvents, googleEventsLoading, googleEventsRefresh } =
+    useGoogleEvents(leftDate, googleFetchEndDate);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const mergedEvents = useMemo(() => {
     const uniqueEvents = new Map<string, CalendarEvent>();
@@ -125,8 +111,13 @@ export default function CalendarScreen() {
     selectedEvent !== null &&
     selectedEvent.source !== "device" &&
     isAuthenticated;
+  const selectedEventRequiresGoogleAuth =
+    (selectedEvent?.source === "google" || !!selectedEvent?.googleCalendarEventId) &&
+    selectedEvent?.source !== "device";
   const canDeleteSelectedEvent =
-    selectedEvent !== null && selectedEvent.source !== "device";
+    selectedEvent !== null &&
+    selectedEvent.source !== "device" &&
+    (!selectedEventRequiresGoogleAuth || isAuthenticated);
 
   return (
     <>
@@ -279,7 +270,7 @@ export default function CalendarScreen() {
   }
 
   async function onSyncGoogle() {
-    if (!selectedEvent || !authId) {
+    if (!selectedEvent || !isAuthenticated) {
       setErrorMessage("Connect Google before saving events.");
       return;
     }
@@ -310,13 +301,13 @@ export default function CalendarScreen() {
         updatedEvent.sourceCalendarId
       ) {
         await updateGoogleCalendarEvent({
-          authId,
           eventId: updatedEvent.googleCalendarEventId,
           sourceCalendarId: updatedEvent.sourceCalendarId,
           title: updatedEvent.title,
           description: updatedEvent.description,
           startTime: updatedEvent.startTime,
           endTime: updatedEvent.endTime,
+          sessionToken,
         });
         setEditorState(
           updatedEvent,
@@ -324,22 +315,22 @@ export default function CalendarScreen() {
         );
       } else if (updatedEvent.googleCalendarEventId && updatedEvent.sourceCalendarId) {
         await updateGoogleCalendarEvent({
-          authId,
           eventId: updatedEvent.googleCalendarEventId,
           sourceCalendarId: updatedEvent.sourceCalendarId,
           title: updatedEvent.title,
           description: updatedEvent.description,
           startTime: updatedEvent.startTime,
           endTime: updatedEvent.endTime,
+          sessionToken,
         });
         setEditorState(updatedEvent, "Updated your synced Google Calendar event.");
       } else {
         const createdEvent = await createGoogleCalendarEvent({
-          authId,
           title: updatedEvent.title,
           description: updatedEvent.description,
           startTime: updatedEvent.startTime,
           endTime: updatedEvent.endTime,
+          sessionToken,
         });
 
         const syncedEvent: CalendarEvent = {
@@ -357,6 +348,13 @@ export default function CalendarScreen() {
 
       void googleEventsRefresh();
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await handleUnauthorizedGoogleSession(
+          "Reconnect Google to continue syncing calendar changes.",
+        );
+        return;
+      }
+
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -378,6 +376,12 @@ export default function CalendarScreen() {
       return;
     }
 
+    if (selectedEventRequiresGoogleAuth && !isAuthenticated) {
+      setErrorMessage("Connect Google before deleting synced events.");
+      setStatusMessage("Reconnect Google to remove events from your calendar.");
+      return;
+    }
+
     setErrorMessage(null);
     setStatusMessage(
       selectedEvent.source === "google" || selectedEvent.googleCalendarEventId
@@ -388,14 +392,14 @@ export default function CalendarScreen() {
 
     try {
       if (
-        authId &&
+        isAuthenticated &&
         selectedEvent.googleCalendarEventId &&
         selectedEvent.sourceCalendarId
       ) {
         await deleteGoogleCalendarEvent({
-          authId,
           eventId: selectedEvent.googleCalendarEventId,
           sourceCalendarId: selectedEvent.sourceCalendarId,
+          sessionToken,
         });
       }
 
@@ -409,6 +413,13 @@ export default function CalendarScreen() {
       setStatusMessage(null);
       void googleEventsRefresh();
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        await handleUnauthorizedGoogleSession(
+          "Reconnect Google to continue deleting synced events.",
+        );
+        return;
+      }
+
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -425,7 +436,17 @@ export default function CalendarScreen() {
     void googleEventsRefresh();
   }
 
+  async function handleUnauthorizedGoogleSession(nextStatusMessage: string) {
+    await clearSession();
+    setErrorMessage("Your Google session expired. Connect Google again.");
+    setStatusMessage(nextStatusMessage);
+  }
+
   function getEventStatusMessage(event: CalendarEvent) {
+    if (!isAuthenticated && (event.source === "google" || event.googleCalendarEventId)) {
+      return "Reconnect Google on the schedule screen before updating this event.";
+    }
+
     if (event.source === "google") {
       return `This event came from Google Calendar${event.sourceCalendarName ? ` (${event.sourceCalendarName})` : ""}.`;
     }
@@ -494,34 +515,3 @@ export default function CalendarScreen() {
     setEvents((prev) => prev.filter((event) => event.id !== eventToRemove.id));
   }
 }
-
-const testEvents: CalendarEvent[] = [
-  {
-    id: "1",
-    startTime: new Date(2026, 0, 18, 12, 30),
-    endTime: new Date(2026, 0, 19, 12, 45),
-    title: "First event",
-    source: "productiv",
-  },
-  {
-    id: "2",
-    startTime: new Date(2026, 0, 20, 2, 0),
-    endTime: new Date(2026, 0, 20, 8, 45),
-    title: "second event",
-    source: "productiv",
-  },
-  {
-    id: "3",
-    startTime: new Date(2026, 0, 21, 21, 0),
-    endTime: new Date(2026, 0, 21, 23, 0),
-    title: "third event",
-    source: "productiv",
-  },
-  {
-    id: "4",
-    startTime: new Date(2026, 0, 24, 0, 0),
-    endTime: new Date(2026, 0, 25, 0, 0),
-    title: "fourth event",
-    source: "productiv",
-  },
-];

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "expo start",
     "start:api": "npm --prefix backend run dev",
-    "dev": "concurrently -n WEB,API -c auto \"cross-env EXPO_PUBLIC_API_BASE_URL=http://localhost:3000 expo start --web\" \"npm run start:api\"",
+    "dev": "concurrently -n WEB,API -c auto \"EXPO_PUBLIC_API_BASE_URL=http://localhost:3000 expo start --web\" \"npm run start:api\"",
     "dev:mobile": "concurrently -n APP,API -c auto \"npm run start\" \"npm run start:api\"",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
