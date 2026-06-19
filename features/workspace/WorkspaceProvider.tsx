@@ -66,7 +66,7 @@ type WorkspaceContextValue = {
   sendAssistantTurn: (input: {
     message: string;
     mode?: AssistantTurnMode;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   tasks: Task[];
   thread: AssistantThread | null;
   acceptSchedulingSuggestion: (suggestionId: string) => Promise<void>;
@@ -189,9 +189,22 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
     async (input: { message: string; mode?: AssistantTurnMode }) => {
       if (!isAuthenticated) {
         setErrorMessage("Connect Google to use the Productiv assistant.");
-        return;
+        return false;
       }
 
+      const optimisticMessage: AssistantMessage = {
+        id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        role: "user",
+        intent: input.mode === "work_log" ? "work_log" : "chat",
+        content: input.message,
+        structuredPayload: {},
+        createdAt: new Date().toISOString(),
+      };
+
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        optimisticMessage,
+      ]);
       setIsSendingMessage(true);
       setErrorMessage(null);
 
@@ -216,12 +229,17 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
         setWorkLogs((previousWorkLogs) =>
           upsertRecords(previousWorkLogs, response.sideEffects.workLogs, true),
         );
+        return true;
       } catch (error) {
+        setMessages((previousMessages) =>
+          previousMessages.filter((message) => message.id !== optimisticMessage.id),
+        );
         setErrorMessage(
           error instanceof Error
             ? error.message
             : "Failed to send assistant message.",
         );
+        return false;
       } finally {
         setIsSendingMessage(false);
       }

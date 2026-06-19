@@ -116,13 +116,19 @@ export default function AssistantHomeScreen() {
       return;
     }
 
-    await sendAssistantTurn({
-      message: nextMessage,
-      mode: composerMode,
-    });
-
+    const nextMode = composerMode;
     setComposerValue("");
     setComposerMode("chat");
+
+    const didSend = await sendAssistantTurn({
+      message: nextMessage,
+      mode: nextMode,
+    });
+
+    if (!didSend) {
+      setComposerValue(nextMessage);
+      setComposerMode(nextMode);
+    }
   }
 
   function handleQuickAction(action: QuickAction) {
