@@ -19,7 +19,7 @@ export function normalizeDraftPlanningState(
   value: unknown,
   fallback: DraftPlanningState = createEmptyDraftPlanningState(),
 ): DraftPlanningState {
-  const record = asRecord(value);
+  const record = asOptionalRecord(value);
 
   return {
     direction: getStringArray(record.direction, fallback.direction),
@@ -126,6 +126,14 @@ export function canGeneratePlan(draft: DraftPlanningState): boolean {
 function asRecord(value: unknown): JsonRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Expected AI response to be an object.");
+  }
+
+  return value as JsonRecord;
+}
+
+function asOptionalRecord(value: unknown): JsonRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
   }
 
   return value as JsonRecord;
