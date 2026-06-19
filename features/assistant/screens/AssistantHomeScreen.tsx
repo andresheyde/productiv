@@ -128,7 +128,7 @@ export default function AssistantHomeScreen() {
   function handleQuickAction(action: QuickAction) {
     setComposerMode(action.mode);
     setComposerValue((currentValue) =>
-      currentValue.trim().length > 0 ? currentValue : action.prompt,
+      getNextQuickActionComposerValue(currentValue, action),
     );
   }
 
@@ -564,4 +564,19 @@ export default function AssistantHomeScreen() {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function getNextQuickActionComposerValue(
+  currentValue: string,
+  action: QuickAction,
+) {
+  const currentQuickAction = QUICK_ACTIONS.find((quickAction) =>
+    currentValue.startsWith(quickAction.prompt),
+  );
+
+  if (currentQuickAction) {
+    return `${action.prompt}${currentValue.slice(currentQuickAction.prompt.length)}`;
+  }
+
+  return currentValue.trim().length > 0 ? currentValue : action.prompt;
 }

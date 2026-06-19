@@ -16,8 +16,10 @@
     "draft": "npx eas-cli@latest workflow:run create-draft.yml",
     "development-builds": "npx eas-cli@latest workflow:run create-development-builds.yml",
     "deploy": "npx eas-cli@latest workflow:run deploy-to-production.yml",
+    "test": "npm --prefix backend test",
+    "test:coverage": "npm --prefix backend run test:coverage",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm run lint"
+    "verify": "npm run typecheck && npm --prefix backend run typecheck && npm run test:coverage && npm run lint"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

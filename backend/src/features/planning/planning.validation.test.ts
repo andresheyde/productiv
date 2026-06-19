@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { createEmptyDraftPlanningState } from "./planning.types.ts";
 import {
+  canGeneratePlan,
+  normalizeGeneratedPlan,
   normalizeDraftPlanningState,
   normalizePlanningTurnExtraction,
 } from "./planning.validation.ts";
@@ -48,6 +50,34 @@ test("normalizeDraftPlanningState merges valid draft fields with fallback state"
   );
 });
 
+test("normalizeDraftPlanningState keeps fallback values for unusable fields", () => {
+  const fallback = {
+    ...createEmptyDraftPlanningState(),
+    direction: ["Build a healthier work rhythm"],
+    mediumTermGoal: "Keep a consistent weekly review",
+    limitingHabits: ["Checking messages before planning"],
+    missingFields: ["timeAvailability"],
+    nextBestQuestion: "When can you protect time?",
+  };
+
+  const result = normalizeDraftPlanningState(
+    {
+      direction: [123, null],
+      mediumTermGoal: "   ",
+      limitingHabits: [],
+      missingFields: "timeAvailability",
+      nextBestQuestion: 42,
+    },
+    fallback,
+  );
+
+  assert.deepEqual(result.direction, fallback.direction);
+  assert.equal(result.mediumTermGoal, fallback.mediumTermGoal);
+  assert.deepEqual(result.limitingHabits, []);
+  assert.deepEqual(result.missingFields, fallback.missingFields);
+  assert.equal(result.nextBestQuestion, fallback.nextBestQuestion);
+});
+
 test("normalizePlanningTurnExtraction still requires an object response", () => {
   assert.throws(
     () =>
@@ -75,4 +105,130 @@ test("normalizePlanningTurnExtraction falls back when draft state is omitted", (
   );
   assert.deepEqual(result.draftPlanningState, fallback);
   assert.equal(result.status, "needs_clarification");
+});
+
+test("normalizeGeneratedPlan trims required fields and optional arrays", () => {
+  const result = normalizeGeneratedPlan({
+    direction: " Build toward a calmer product launch ",
+    mediumTermGoal: " Ship the beta ",
+    thirtyDayPerformanceGoals: [" Finish onboarding ", "", 7],
+    fourteenDayPerformanceGoals: [" Test the planning flow "],
+    timeAvailability: " Weekday evenings ",
+    timeProtectionPlan: [" Tuesday 7pm to 9pm "],
+    limitingHabits: [" Context switching "],
+    scriptedActions: [" Open the launch checklist "],
+    environmentalOptimizations: [" Put phone outside the room "],
+    constraints: [" No Sunday deep work "],
+    summary: " A cautious launch plan ",
+  });
+
+  assert.deepEqual(result, {
+    direction: "Build toward a calmer product launch",
+    mediumTermGoal: "Ship the beta",
+    thirtyDayPerformanceGoals: ["Finish onboarding"],
+    fourteenDayPerformanceGoals: ["Test the planning flow"],
+    timeAvailability: "Weekday evenings",
+    timeProtectionPlan: ["Tuesday 7pm to 9pm"],
+    limitingHabits: ["Context switching"],
+    scriptedActions: ["Open the launch checklist"],
+    environmentalOptimizations: ["Put phone outside the room"],
+    constraints: ["No Sunday deep work"],
+    summary: "A cautious launch plan",
+  });
+});
+
+test("normalizeGeneratedPlan rejects missing required plan fields", () => {
+  assert.throws(
+    () => normalizeGeneratedPlan(null),
+    /Expected AI response to be an object/u,
+  );
+
+  assert.throws(
+    () =>
+      normalizeGeneratedPlan({
+        direction: "",
+        mediumTermGoal: "Goal",
+        thirtyDayPerformanceGoals: ["Finish beta"],
+        fourteenDayPerformanceGoals: [],
+        timeAvailability: "Evenings",
+        timeProtectionPlan: ["Tuesday evening"],
+        limitingHabits: [],
+        scriptedActions: [],
+        environmentalOptimizations: [],
+        constraints: [],
+        summary: "Summary",
+      }),
+    /Expected AI response to include a non-empty string/u,
+  );
+
+  assert.throws(
+    () =>
+      normalizeGeneratedPlan({
+        direction: "Direction",
+        mediumTermGoal: "Goal",
+        thirtyDayPerformanceGoals: [],
+        fourteenDayPerformanceGoals: [],
+        timeAvailability: "Evenings",
+        timeProtectionPlan: ["Tuesday evening"],
+        limitingHabits: [],
+        scriptedActions: [],
+        environmentalOptimizations: [],
+        constraints: [],
+        summary: "Summary",
+      }),
+    /Expected AI response to include a non-empty string array/u,
+  );
+});
+
+test("canGeneratePlan requires goal, time, protection, and barrier details", () => {
+  const emptyDraft = createEmptyDraftPlanningState();
+  assert.equal(canGeneratePlan(emptyDraft), false);
+
+  const withMediumTermGoal = {
+    ...emptyDraft,
+    mediumTermGoal: "Ship the beta",
+  };
+  assert.equal(canGeneratePlan(withMediumTermGoal), false);
+
+  const withShortGoal = {
+    ...withMediumTermGoal,
+    fourteenDayPerformanceGoals: ["Finish onboarding"],
+  };
+  assert.equal(canGeneratePlan(withShortGoal), false);
+
+  const withTime = {
+    ...withShortGoal,
+    timeAvailability: "Weekday evenings",
+  };
+  assert.equal(canGeneratePlan(withTime), false);
+
+  const withProtectedTime = {
+    ...withTime,
+    timeProtectionPlan: ["Tuesday 7pm to 9pm"],
+  };
+  assert.equal(canGeneratePlan(withProtectedTime), false);
+
+  assert.equal(
+    canGeneratePlan({
+      ...withProtectedTime,
+      limitingHabits: ["Checking chat before planning"],
+    }),
+    true,
+  );
+  assert.equal(
+    canGeneratePlan({
+      ...withProtectedTime,
+      scriptedActions: ["Open the launch checklist"],
+    }),
+    true,
+  );
+  assert.equal(
+    canGeneratePlan({
+      ...withProtectedTime,
+      thirtyDayPerformanceGoals: ["Launch beta"],
+      fourteenDayPerformanceGoals: [],
+      environmentalOptimizations: ["Put phone outside the room"],
+    }),
+    true,
+  );
 });

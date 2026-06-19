@@ -1,4 +1,5 @@
 import { getStructuredAiProvider } from "../../shared/ai/provider-factory.ts";
+import type { StructuredAiProvider } from "../../shared/ai/ai-provider.ts";
 import {
   buildPlanSynthesisInput,
   buildPlanningTurnInput,
@@ -21,6 +22,7 @@ import {
 } from "./planning.types.ts";
 
 interface RunPlanningTurnInput {
+  aiProvider?: StructuredAiProvider;
   chatHistory: PlanningChatMessage[];
   currentDraftPlanningState?: DraftPlanningState;
   schedulingContext?: unknown;
@@ -29,7 +31,7 @@ interface RunPlanningTurnInput {
 export async function runPlanningTurn(
   input: RunPlanningTurnInput,
 ): Promise<PlanningTurnResponse> {
-  const aiProvider = getStructuredAiProvider();
+  const aiProvider = input.aiProvider ?? getStructuredAiProvider();
   const currentDraftPlanningState = normalizeDraftPlanningState(
     input.currentDraftPlanningState,
     createEmptyDraftPlanningState(),
