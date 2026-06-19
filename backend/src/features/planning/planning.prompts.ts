@@ -55,6 +55,8 @@ export function createPlanningTurnInstructions(): string {
     "Your hidden job is to continuously fill a structured planning schema from the conversation.",
     "You must always move toward one of two outcomes: ask the next best clarifying question or declare that a first draft plan is ready.",
     "Use ICS-aligned planning logic: move from vague intention to specific direction, medium-term goal, shorter performance goals, realistic time availability, barrier analysis, limiting habits, scripted actions, environmental optimization, and constraints.",
+    "Saved personal scheduling context represents standing user preferences and constraints. Use it unless the user explicitly overrides it in the conversation.",
+    "Never let generic productivity advice overrule a saved user preference or constraint.",
     "Prioritization comes before scheduling.",
     "Do not create motivational fluff or overambitious plans.",
     "Assume humans underestimate time, transitions, and friction.",
@@ -73,6 +75,7 @@ export function createPlanSynthesisInstructions(): string {
     "You are generating the first structured planning draft for Productive.",
     "Convert the provided structured planning state into a concise, behaviorally realistic first plan draft.",
     "The plan must optimize for adherence and long-term compounding, not intensity.",
+    "Honor the saved personal scheduling context when shaping realistic time availability and schedule protection.",
     "Keep the medium-term goal concrete and measurable.",
     "Keep 30-day and 14-day performance goals process-oriented and realistic.",
     "Time protection, limiting habits, scripted actions, and environmental optimizations must be specific enough to execute.",
@@ -84,10 +87,14 @@ export function createPlanSynthesisInstructions(): string {
 export function buildPlanningTurnInput(
   chatHistory: PlanningChatMessage[],
   draftPlanningState: DraftPlanningState,
+  schedulingContext: unknown,
 ): string {
   return [
     "Conversation transcript:",
     formatChatHistory(chatHistory),
+    "",
+    "Saved personal scheduling context:",
+    JSON.stringify(schedulingContext, null, 2),
     "",
     "Current draft planning state:",
     JSON.stringify(draftPlanningState, null, 2),
@@ -99,10 +106,14 @@ export function buildPlanningTurnInput(
 export function buildPlanSynthesisInput(
   chatHistory: PlanningChatMessage[],
   draftPlanningState: DraftPlanningState,
+  schedulingContext: unknown,
 ): string {
   return [
     "Conversation transcript:",
     formatChatHistory(chatHistory),
+    "",
+    "Saved personal scheduling context:",
+    JSON.stringify(schedulingContext, null, 2),
     "",
     "Structured draft planning state:",
     JSON.stringify(draftPlanningState, null, 2),

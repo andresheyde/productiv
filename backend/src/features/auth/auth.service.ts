@@ -1,4 +1,5 @@
 import type { Credentials } from "google-auth-library";
+import { google } from "googleapis";
 
 import { createGoogleOAuthClient } from "../../shared/clients/google-oauth-client.ts";
 import {
@@ -8,6 +9,7 @@ import {
   nativeDevelopmentSchemes,
   webAppOrigin,
 } from "../../shared/config/app-config.ts";
+import type { GoogleProfile } from "./auth.types.ts";
 
 type AuthState = {
   redirectTo: string;
@@ -39,6 +41,31 @@ export async function exchangeCodeForTokens(
 
   console.log("[Auth] Successfully obtained credentials");
   return tokenResponse.tokens;
+}
+
+export async function fetchGoogleProfileFromTokens(
+  tokens: Credentials,
+): Promise<GoogleProfile> {
+  const oauth2Client = createGoogleOAuthClient();
+  oauth2Client.setCredentials(tokens);
+
+  const oauth2 = google.oauth2({
+    version: "v2",
+    auth: oauth2Client,
+  });
+  const response = await oauth2.userinfo.get();
+  const data = response.data;
+
+  if (!data.id) {
+    throw new Error("Google user profile response did not include an id.");
+  }
+
+  return {
+    googleSubject: data.id,
+    email: data.email ?? null,
+    fullName: data.name ?? null,
+    avatarUrl: data.picture ?? null,
+  };
 }
 
 export function getRedirectToFromAuthState(state: string | undefined) {

@@ -8,10 +8,13 @@ import {
 } from "../../shared/auth/session.ts";
 import {
   exchangeCodeForTokens,
+  fetchGoogleProfileFromTokens,
   getGoogleAuthUrl,
   getRedirectToFromAuthState,
   resolveAuthRedirectTarget,
 } from "./auth.service.ts";
+import { upsertUserProfile } from "./auth.persistence.ts";
+import { resolveAuthenticatedRequest } from "./auth-session.ts";
 
 interface GoogleAuthQuery {
   redirectTo?: string;
@@ -53,7 +56,9 @@ export async function handleGoogleCallback(
 
   try {
     const tokens = await exchangeCodeForTokens(code);
-    const sessionToken = createSessionToken(tokens);
+    const profile = await fetchGoogleProfileFromTokens(tokens);
+    const user = await upsertUserProfile(profile);
+    const sessionToken = createSessionToken(tokens, user);
     const redirectTo = getRedirectToFromAuthState(
       typeof req.query.state === "string" ? req.query.state : undefined,
     );
@@ -89,9 +94,29 @@ export async function handleGoogleCallback(
 }
 
 export function getAuthSession(req: Request, res: Response) {
-  const credentials = getSessionCredentialsFromRequest(req);
+  return resolveAuthenticatedRequest(req)
+    .then((session) =>
+      res.json({
+        isAuthenticated: session !== null,
+        user:
+          session === null
+            ? null
+            : {
+                id: session.user.id,
+                email: session.user.email,
+                fullName: session.user.fullName,
+                avatarUrl: session.user.avatarUrl,
+              },
+      }),
+    )
+    .catch((error) => {
+      if (!getSessionCredentialsFromRequest(req)) {
+        return res.json({ isAuthenticated: false, user: null });
+      }
 
-  return res.json({ isAuthenticated: credentials !== null });
+      console.error("[Auth] Failed to resolve auth session", error);
+      return res.status(500).json({ error: "Failed to resolve auth session" });
+    });
 }
 
 export function logout(_req: Request, res: Response) {

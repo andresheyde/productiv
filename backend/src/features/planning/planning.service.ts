@@ -23,6 +23,7 @@ import {
 interface RunPlanningTurnInput {
   chatHistory: PlanningChatMessage[];
   currentDraftPlanningState?: DraftPlanningState;
+  schedulingContext?: unknown;
 }
 
 export async function runPlanningTurn(
@@ -37,7 +38,11 @@ export async function runPlanningTurn(
   const extractionResult = normalizePlanningTurnExtraction(
     await aiProvider.generateJson<unknown>({
       instructions: createPlanningTurnInstructions(),
-      input: buildPlanningTurnInput(input.chatHistory, currentDraftPlanningState),
+      input: buildPlanningTurnInput(
+        input.chatHistory,
+        currentDraftPlanningState,
+        input.schedulingContext ?? null,
+      ),
       schemaName: "planning_turn_response",
       schema: PLANNING_TURN_RESPONSE_SCHEMA,
     }),
@@ -63,7 +68,11 @@ export async function runPlanningTurn(
   const generatedPlan = normalizeGeneratedPlan(
     await aiProvider.generateJson<unknown>({
       instructions: createPlanSynthesisInstructions(),
-      input: buildPlanSynthesisInput(input.chatHistory, draftPlanningState),
+      input: buildPlanSynthesisInput(
+        input.chatHistory,
+        draftPlanningState,
+        input.schedulingContext ?? null,
+      ),
       schemaName: "generated_plan",
       schema: GENERATED_PLAN_SCHEMA,
     }),

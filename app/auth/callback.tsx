@@ -17,11 +17,11 @@ export default function AuthCallbackScreen() {
 
   useEffect(() => {
     async function completeAuthFlow() {
-      const nextRoute =
-        returnTo === "/schedule" || returnTo === "/calendar" ? returnTo : "/";
+      const nextRoute = resolveReturnToPath(returnTo);
 
       if (typeof sessionToken === "string" && sessionToken.length > 0) {
         setSessionToken(sessionToken);
+        await refreshAuthState(sessionToken);
         router.replace(nextRoute as never);
         return;
       }
@@ -55,4 +55,15 @@ export default function AuthCallbackScreen() {
       </Text>
     </View>
   );
+}
+
+function resolveReturnToPath(returnTo: string | undefined) {
+  return returnTo === "/" ||
+    returnTo === "/goals" ||
+    returnTo === "/tasks" ||
+    returnTo === "/metrics" ||
+    returnTo === "/calendar" ||
+    returnTo === "/schedule"
+    ? returnTo
+    : "/";
 }

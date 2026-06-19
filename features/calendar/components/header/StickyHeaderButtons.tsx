@@ -42,11 +42,16 @@ export default function StickyHeaderButtons({
         backgroundColor: "#fffdf8",
       }}
     >
-      <Text style={{ fontWeight: "700", fontSize: 16, color: "#16423c" }}>
-        {format(startDate, "MMMM yyyy")}
-      </Text>
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Text
+          numberOfLines={1}
+          style={{ fontWeight: "700", fontSize: 16, color: "#16423c" }}
+        >
+          {format(startDate, "MMMM yyyy")}
+        </Text>
+      </View>
       <View
-        style={{ flexDirection: "row", alignItems: "center", marginLeft: 12 }}
+        style={{ flexDirection: "row", alignItems: "center", marginLeft: 8 }}
       >
         <Pressable
           onPress={() => onPrevPress && onPrevPress()}

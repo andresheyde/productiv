@@ -13,6 +13,20 @@ export const EVENT_EDITOR_POPUP_HEIGHT = 360;
 export const HOURS = 24;
 export const MINUTES = 60;
 
+export function getCalendarColumnWidth(
+  availableWidth: number,
+  numDays: number,
+) {
+  if (numDays <= 0) {
+    throw new Error(`Invalid numDays: ${numDays}`);
+  }
+
+  return Math.max(
+    0,
+    (Math.max(availableWidth, TIME_GUTTER_WIDTH) - TIME_GUTTER_WIDTH) / numDays,
+  );
+}
+
 export function timeToY(
   hour: number,
   minute: number = 0,

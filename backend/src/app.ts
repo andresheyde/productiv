@@ -1,9 +1,12 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 
+import { assistantRouter } from "./features/assistant/assistant.routes.ts";
 import { authRouter } from "./features/auth/auth.routes.ts";
 import { calendarRouter } from "./features/calendar/calendar.routes.ts";
 import { planningRouter } from "./features/planning/planning.routes.ts";
+import { schedulingContextRouter } from "./features/scheduling-context/scheduling-context.routes.ts";
+import { workspaceRouter } from "./features/workspace/workspace.routes.ts";
 import { isProduction, webAppOrigin } from "./shared/config/app-config.ts";
 
 export const app = express();
@@ -45,8 +48,11 @@ app.get("/", (_req, res) => {
 });
 
 app.use(authRouter);
+app.use(assistantRouter);
 app.use(calendarRouter);
 app.use(planningRouter);
+app.use(schedulingContextRouter);
+app.use(workspaceRouter);
 
 export default app;
 

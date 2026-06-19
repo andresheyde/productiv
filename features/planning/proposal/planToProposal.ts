@@ -28,11 +28,20 @@ type ParsedRecurringWindow = {
   linkedPlanField: ProposalLinkedPlanField;
 };
 
+type ProposalGenerationPreferences = {
+  preferredFocusBlockMinutes?: number | null;
+};
+
 export function generateProposalBlocksFromPlan(
   generatedPlan: GeneratedPlan,
+  preferences?: ProposalGenerationPreferences,
 ): ProposedScheduleBlock[] {
   const directBlocks = generatedPlan.timeProtectionPlan.flatMap((entry, index) =>
-    parseRecurringWindow(entry, "timeProtectionPlan").flatMap(
+    parseRecurringWindow(
+      entry,
+      "timeProtectionPlan",
+      preferences?.preferredFocusBlockMinutes ?? null,
+    ).flatMap(
       (window, windowIndex) =>
         createBlockFromWindow(window, `tp-${index}-${windowIndex}`),
     ),
@@ -42,10 +51,17 @@ export function generateProposalBlocksFromPlan(
     return dedupeBlocks(sortBlocks(directBlocks));
   }
 
-  return dedupeBlocks(sortBlocks(buildFallbackBlocks(generatedPlan)));
+  return dedupeBlocks(
+    sortBlocks(
+      buildFallbackBlocks(generatedPlan, preferences?.preferredFocusBlockMinutes ?? null),
+    ),
+  );
 }
 
-function buildFallbackBlocks(generatedPlan: GeneratedPlan): ProposedScheduleBlock[] {
+function buildFallbackBlocks(
+  generatedPlan: GeneratedPlan,
+  preferredFocusBlockMinutes: number | null,
+): ProposedScheduleBlock[] {
   const blocks: ProposedScheduleBlock[] = [];
   const protectedDays = inferProtectedDays(generatedPlan.timeAvailability);
   const firstGoal =
@@ -58,8 +74,11 @@ function buildFallbackBlocks(generatedPlan: GeneratedPlan): ProposedScheduleBloc
       protectedDays.length > 0 ? protectedDays : [2, 4, 6];
 
     fallbackDays.slice(0, 3).forEach((dayOfWeek, index) => {
-      const [startTime, endTime] =
-        dayOfWeek === 6 ? ["10:00", "12:00"] : ["19:00", "21:00"];
+      const startTime = dayOfWeek === 6 ? "10:00" : "19:00";
+      const durationMinutes = normalizePreferredFocusBlockMinutes(
+        preferredFocusBlockMinutes,
+      );
+      const endTime = addMinutesToTime(startTime, durationMinutes);
 
       blocks.push({
         id: `fallback-focus-${dayOfWeek}-${index}`,
@@ -67,7 +86,7 @@ function buildFallbackBlocks(generatedPlan: GeneratedPlan): ProposedScheduleBloc
         dayOfWeek,
         startTime,
         endTime,
-        durationMinutes: differenceInMinutes(startTime, endTime),
+        durationMinutes,
         source: "generated_plan",
         blockType: inferBlockType(firstGoal),
         isRecurring: true,
@@ -104,10 +123,13 @@ function buildFallbackBlocks(generatedPlan: GeneratedPlan): ProposedScheduleBloc
 function parseRecurringWindow(
   entry: string,
   linkedPlanField: ProposalLinkedPlanField,
+  preferredFocusBlockMinutes: number | null,
 ): ParsedRecurringWindow[] {
   const normalizedEntry = entry.trim();
   const days = extractDays(normalizedEntry);
-  const range = extractTimeRange(normalizedEntry) ?? inferTimeRange(normalizedEntry);
+  const range =
+    extractTimeRange(normalizedEntry) ??
+    inferTimeRange(normalizedEntry, preferredFocusBlockMinutes);
 
   if (days.length === 0 || !range) {
     return [];
@@ -207,21 +229,25 @@ function extractTimeRange(entry: string) {
   };
 }
 
-function inferTimeRange(entry: string) {
+function inferTimeRange(entry: string, preferredFocusBlockMinutes: number | null) {
+  const durationMinutes = normalizePreferredFocusBlockMinutes(
+    preferredFocusBlockMinutes,
+  );
+
   if (/morning/i.test(entry)) {
-    return { startTime: "07:00", endTime: "09:00" };
+    return { startTime: "07:00", endTime: addMinutesToTime("07:00", durationMinutes) };
   }
 
   if (/afternoon/i.test(entry)) {
-    return { startTime: "13:00", endTime: "15:00" };
+    return { startTime: "13:00", endTime: addMinutesToTime("13:00", durationMinutes) };
   }
 
   if (/evening/i.test(entry)) {
-    return { startTime: "19:00", endTime: "21:00" };
+    return { startTime: "19:00", endTime: addMinutesToTime("19:00", durationMinutes) };
   }
 
   if (/night/i.test(entry)) {
-    return { startTime: "20:00", endTime: "21:30" };
+    return { startTime: "20:00", endTime: addMinutesToTime("20:00", durationMinutes) };
   }
 
   return null;
@@ -339,6 +365,24 @@ function differenceInMinutes(startTime: string, endTime: string) {
   const [endHour, endMinute] = endTime.split(":").map(Number);
 
   return (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+}
+
+function addMinutesToTime(startTime: string, durationMinutes: number) {
+  const [startHour, startMinute] = startTime.split(":").map(Number);
+  const totalMinutes = startHour * 60 + startMinute + durationMinutes;
+  const normalizedMinutes = Math.min(totalMinutes, 23 * 60 + 59);
+  const hours = Math.floor(normalizedMinutes / 60);
+  const minutes = normalizedMinutes % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function normalizePreferredFocusBlockMinutes(value: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 120;
+  }
+
+  return Math.min(Math.max(Math.round(value), 30), 180);
 }
 
 function toTwentyFourHourTime(

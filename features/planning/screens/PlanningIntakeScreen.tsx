@@ -26,16 +26,25 @@ import {
   createEmptyDraftPlanningState,
   type GeneratedPlan,
   type PlanningChatMessage,
-  type PlanningTurnStatus,
 } from "@/features/planning/types";
+import { fetchUserSchedulingContext } from "@/features/scheduling-context/api/schedulingContextApi";
+import type { UserSchedulingContext } from "@/features/scheduling-context/types";
 import { getSessionTokenFromUrl } from "@/features/schedule/utils/scheduleAuth";
 
 export default function PlanningIntakeScreen() {
+  type PlanningScreenState =
+    | "idle"
+    | "waiting_for_response"
+    | "collecting_input"
+    | "draft_ready"
+    | "error";
+
   const {
     clearSession,
     isAuthenticated,
     isAuthReady,
     refreshAuthState,
+    sessionToken,
     setSessionToken,
   } = useAuth();
   const [messages, setMessages] = useState<PlanningChatMessage[]>([]);
@@ -47,10 +56,12 @@ export default function PlanningIntakeScreen() {
     [],
   );
   const [composerValue, setComposerValue] = useState("");
-  const [screenState, setScreenState] = useState<PlanningTurnStatus>("idle");
+  const [screenState, setScreenState] = useState<PlanningScreenState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPlanReviewExpanded, setIsPlanReviewExpanded] = useState(false);
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
+  const [schedulingContext, setSchedulingContext] =
+    useState<UserSchedulingContext | null>(null);
 
   const isWaitingForResponse = screenState === "waiting_for_response";
   const hasProposal = generatedPlan !== null;
@@ -62,9 +73,39 @@ export default function PlanningIntakeScreen() {
       return;
     }
 
-    setProposalBlocks(generateProposalBlocksFromPlan(generatedPlan));
+    setProposalBlocks(
+      generateProposalBlocksFromPlan(generatedPlan, {
+        preferredFocusBlockMinutes:
+          schedulingContext?.preferredFocusBlockMinutes ?? null,
+      }),
+    );
     setIsPlanReviewExpanded(false);
-  }, [generatedPlan]);
+  }, [generatedPlan, schedulingContext]);
+
+  useEffect(() => {
+    if (!isAuthReady || !isAuthenticated || !sessionToken) {
+      setSchedulingContext(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    void fetchUserSchedulingContext(sessionToken)
+      .then((result) => {
+        if (isMounted) {
+          setSchedulingContext(result);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setSchedulingContext(null);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthReady, isAuthenticated, sessionToken]);
 
   async function handleConnectGoogle() {
     setErrorMessage(null);
@@ -135,6 +176,7 @@ export default function PlanningIntakeScreen() {
       const response = await sendPlanningTurn({
         chatHistory: nextHistory,
         currentDraftPlanningState: draftPlanningState,
+        sessionToken,
       });
 
       setDraftPlanningState(response.draftPlanningState);

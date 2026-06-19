@@ -11,41 +11,72 @@ import { Platform } from "react-native";
 
 import { fetchAuthSession, logoutAuthSession } from "@/features/auth/authApi";
 
+export type AuthUser = {
+  id: string;
+  email: string | null;
+  fullName: string | null;
+  avatarUrl: string | null;
+};
+
 type AuthContextValue = {
   clearSession: () => Promise<void>;
   isAuthenticated: boolean;
   isAuthReady: boolean;
-  refreshAuthState: () => Promise<boolean>;
+  refreshAuthState: (nextSessionToken?: string | null) => Promise<boolean>;
   sessionToken: string | null;
   setSessionToken: (nextSessionToken: string) => void;
+  user: AuthUser | null;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [sessionToken, setSessionTokenState] = useState<string | null>(null);
-  const [hasWebSession, setHasWebSession] = useState(false);
-  const [isAuthReady, setIsAuthReady] = useState(Platform.OS !== "web");
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
-  const refreshAuthState = useCallback(async () => {
-    if (Platform.OS !== "web") {
-      setIsAuthReady(true);
-      return sessionToken !== null;
-    }
+  const refreshAuthState = useCallback(
+    async (nextSessionToken?: string | null) => {
+      const tokenToUse =
+        nextSessionToken === undefined ? sessionToken : nextSessionToken;
 
-    setIsAuthReady(false);
+      if (Platform.OS !== "web" && !tokenToUse) {
+        setUser(null);
+        setIsAuthReady(true);
+        return false;
+      }
 
-    try {
-      const result = await fetchAuthSession();
-      setHasWebSession(result.isAuthenticated);
-      return result.isAuthenticated;
-    } catch {
-      setHasWebSession(false);
-      return false;
-    } finally {
-      setIsAuthReady(true);
-    }
-  }, [sessionToken]);
+      if (Platform.OS === "web" && !tokenToUse && sessionToken) {
+        setSessionTokenState(null);
+      } else if (nextSessionToken !== undefined) {
+        setSessionTokenState(nextSessionToken);
+      }
+
+      setIsAuthReady(false);
+
+      try {
+        const result = await fetchAuthSession(tokenToUse);
+        setUser(result.user);
+
+        if (!result.isAuthenticated && tokenToUse) {
+          setSessionTokenState(null);
+        }
+
+        return result.isAuthenticated;
+      } catch {
+        setUser(null);
+
+        if (tokenToUse) {
+          setSessionTokenState(null);
+        }
+
+        return false;
+      } finally {
+        setIsAuthReady(true);
+      }
+    },
+    [sessionToken],
+  );
 
   const clearSession = useCallback(async () => {
     try {
@@ -54,41 +85,36 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
     } finally {
       setSessionTokenState(null);
-      setHasWebSession(false);
+      setUser(null);
       setIsAuthReady(true);
     }
   }, []);
 
   const setSessionToken = useCallback((nextSessionToken: string) => {
     setSessionTokenState(nextSessionToken);
-    setHasWebSession(false);
-    setIsAuthReady(true);
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== "web") {
-      return;
-    }
-
     void refreshAuthState();
   }, [refreshAuthState]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       clearSession,
-      isAuthenticated: sessionToken !== null || hasWebSession,
+      isAuthenticated: user !== null,
       isAuthReady,
       refreshAuthState,
       sessionToken,
       setSessionToken,
+      user,
     }),
     [
       clearSession,
-      hasWebSession,
       isAuthReady,
       refreshAuthState,
       sessionToken,
       setSessionToken,
+      user,
     ],
   );
 

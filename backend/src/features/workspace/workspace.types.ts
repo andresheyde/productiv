@@ -1,0 +1,85 @@
+export type GoalStatus = "active" | "paused" | "completed" | "archived";
+export type TaskStatus = "inbox" | "planned" | "scheduled" | "done" | "canceled";
+export type ScheduleIntent = "unscheduled" | "schedule_now" | "someday";
+export type MetricProgressSource = "assistant_extract" | "manual";
+
+export type GoalRecord = {
+  id: string;
+  title: string;
+  definition: string;
+  notes: string | null;
+  priorityRank: number;
+  status: GoalStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaskRecord = {
+  id: string;
+  goalId: string | null;
+  title: string;
+  description: string;
+  priorityRank: number;
+  status: TaskStatus;
+  estimatedMinutes: number | null;
+  dueAt: string | null;
+  linkedCalendarEventId: string | null;
+  scheduleIntent: ScheduleIntent;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GoalMetricRecord = {
+  id: string;
+  goalId: string;
+  name: string;
+  unitLabel: string;
+  targetValue: number;
+  currentValue: number;
+  isActive: boolean;
+  lastDeltaValue: number | null;
+  lastEntryAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MetricProgressEntryRecord = {
+  id: string;
+  metricId: string;
+  workLogId: string | null;
+  deltaValue: number;
+  source: MetricProgressSource;
+  note: string | null;
+  createdAt: string;
+};
+
+export type WorkLogRecord = {
+  id: string;
+  threadId: string | null;
+  goalId: string | null;
+  taskId: string | null;
+  rawText: string;
+  summary: string;
+  recordedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AssistantThreadRecord = {
+  id: string;
+  title: string;
+  currentIntent: string | null;
+  latestContextSummary: string;
+  latestArtifact: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AssistantMessageRecord = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  intent: string | null;
+  content: string;
+  structuredPayload: Record<string, unknown>;
+  createdAt: string;
+};

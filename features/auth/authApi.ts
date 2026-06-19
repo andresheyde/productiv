@@ -2,6 +2,12 @@ import { apiRequest } from "@/features/shared/api/request";
 
 export type AuthSessionResponse = {
   isAuthenticated: boolean;
+  user: {
+    id: string;
+    email: string | null;
+    fullName: string | null;
+    avatarUrl: string | null;
+  } | null;
 };
 
 export async function fetchAuthSession(sessionToken?: string | null) {

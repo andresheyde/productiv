@@ -9,7 +9,7 @@ import AllDayEventsHeader, {
 } from "@/features/calendar/components/allDayEvents/AllDayEventsHeader";
 import GridCanvas from "@/features/calendar/components/grid/GridCanvas";
 import StickyHeader from "@/features/calendar/components/header/StickyHeader";
-import { TIME_GUTTER_WIDTH } from "@/features/calendar/layout/calendarLayout";
+import { getCalendarColumnWidth } from "@/features/calendar/layout/calendarLayout";
 import type { CalendarEvent } from "@/features/calendar/types";
 import { proposalBlocksToCalendarEvents } from "@/features/planning/proposal/proposalAdapter";
 import type { ProposedScheduleBlock } from "@/features/planning/proposal/types";
@@ -25,13 +25,17 @@ export default function ProposalCalendarPreview({
   proposalBlocks,
   isAuthenticated,
 }: ProposalCalendarPreviewProps) {
+  const { width: windowWidth } = useWindowDimensions();
   const [leftDate, setLeftDate] = useState(() =>
     startOfDay(startOfWeek(new Date(), { weekStartsOn: 0 })),
   );
+  const [calendarWidth, setCalendarWidth] = useState(0);
   const rightDate = addDays(leftDate, NUM_DAYS);
   const googleFetchEndDate = addDays(leftDate, NUM_DAYS - 1);
-  const columnWidth =
-    (useWindowDimensions().width - TIME_GUTTER_WIDTH) / NUM_DAYS;
+  const columnWidth = getCalendarColumnWidth(
+    calendarWidth || windowWidth,
+    NUM_DAYS,
+  );
   const {
     googleEvents,
     googleEventsError,
@@ -135,6 +139,13 @@ export default function ProposalCalendarPreview({
           borderRadius: 18,
           borderWidth: 1,
           borderColor: "#dfd6c8",
+        }}
+        onLayout={({ nativeEvent }) => {
+          const nextWidth = nativeEvent.layout.width;
+
+          setCalendarWidth((currentWidth) =>
+            currentWidth === nextWidth ? currentWidth : nextWidth,
+          );
         }}
       >
         <StickyHeader

@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getDirectPool } from "./postgres.ts";
+import { getDirectPool, getRuntimePool } from "./postgres.ts";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = path.dirname(currentFilePath);
@@ -14,7 +14,7 @@ type MigrationFile = {
 };
 
 export async function runDatabaseMigrations() {
-  const pool = getDirectPool();
+  const pool = await resolveMigrationPool();
   const client = await pool.connect();
 
   try {
@@ -33,7 +33,7 @@ export async function runDatabaseMigrations() {
     client.release();
   }
 
-  const appliedVersions = await listAppliedVersions();
+  const appliedVersions = await listAppliedVersions(pool);
   const pendingMigrations = (await loadMigrationFiles()).filter(
     (migration) => !appliedVersions.has(migration.name),
   );
@@ -67,8 +67,27 @@ export async function runDatabaseMigrations() {
   }
 }
 
-async function listAppliedVersions() {
-  const pool = getDirectPool();
+async function resolveMigrationPool() {
+  try {
+    const directPool = getDirectPool();
+    const directClient = await directPool.connect();
+    directClient.release();
+    return directPool;
+  } catch (error) {
+    console.warn(
+      `[DB] Direct database connection unavailable. Falling back to runtime database URL for migrations. ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+
+    const runtimePool = getRuntimePool();
+    const runtimeClient = await runtimePool.connect();
+    runtimeClient.release();
+    return runtimePool;
+  }
+}
+
+async function listAppliedVersions(pool: Awaited<ReturnType<typeof resolveMigrationPool>>) {
   const result = await pool.query<{ version: string }>(
     "select version from schema_migrations order by version asc",
   );

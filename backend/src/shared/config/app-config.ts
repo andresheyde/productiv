@@ -24,6 +24,9 @@ export const supabaseServiceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? null;
 
 export const googleScopes = [
+  "openid",
+  "email",
+  "profile",
   "https://www.googleapis.com/auth/calendar",
 ];
 

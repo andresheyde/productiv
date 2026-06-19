@@ -15,6 +15,7 @@ import {
   GestureDetector,
   MouseButton,
 } from "react-native-gesture-handler";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { ApiError } from "@/features/shared/api/request";
 import {
@@ -32,15 +33,19 @@ import StickyHeader from "../components/header/StickyHeader";
 import useDeviceCalendars from "../data/device/hooks/useDeviceCalendars";
 import useDeviceEvents from "../data/device/hooks/useDeviceEvents";
 import useGoogleEvents from "../data/google/hooks/useGoogleEvents";
-import { TIME_GUTTER_WIDTH, xAndYToDate } from "../layout/calendarLayout";
+import { getCalendarColumnWidth, xAndYToDate } from "../layout/calendarLayout";
 import { CalendarEvent } from "../types";
 
 export default function CalendarScreen() {
   const weekStartDay = 0;
   const numDays = 7;
   const today = new Date();
-  const columnWidth =
-    (useWindowDimensions().width - TIME_GUTTER_WIDTH) / numDays;
+  const { width: windowWidth } = useWindowDimensions();
+  const [calendarWidth, setCalendarWidth] = useState(0);
+  const columnWidth = getCalendarColumnWidth(
+    calendarWidth || windowWidth,
+    numDays,
+  );
 
   const [leftDate, setLeftDate] = useState(getDefaultLeftDate());
   const rightDate = addDays(leftDate, numDays);
@@ -120,9 +125,21 @@ export default function CalendarScreen() {
     (!selectedEventRequiresGoogleAuth || isAuthenticated);
 
   return (
-    <>
+    <SafeAreaView
+      edges={["bottom"]}
+      style={{ flex: 1, backgroundColor: "#f3efe6" }}
+    >
       <GestureDetector gesture={gesture}>
-        <View style={{ flex: 1 }}>
+        <View
+          style={{ flex: 1 }}
+          onLayout={({ nativeEvent }) => {
+            const nextWidth = nativeEvent.layout.width;
+
+            setCalendarWidth((currentWidth) =>
+              currentWidth === nextWidth ? currentWidth : nextWidth,
+            );
+          }}
+        >
           <StickyHeader
             today={today}
             startDate={leftDate}
@@ -174,7 +191,7 @@ export default function CalendarScreen() {
           onDelete={onDelete}
         />
       ) : null}
-    </>
+    </SafeAreaView>
   );
 
   function onEventBlockPress(event: CalendarEvent) {

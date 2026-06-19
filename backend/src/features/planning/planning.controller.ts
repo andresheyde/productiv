@@ -1,5 +1,10 @@
 import type { Request, Response } from "express";
 
+import { resolveAuthenticatedRequest } from "../auth/auth-session.ts";
+import {
+  buildCompiledSchedulingContext,
+  getOrCreateUserSchedulingContext,
+} from "../scheduling-context/scheduling-context.repository.ts";
 import { runPlanningTurn } from "./planning.service.ts";
 import {
   createEmptyDraftPlanningState,
@@ -32,12 +37,19 @@ export async function postPlanningTurn(
   }
 
   try {
+    const session = await resolveAuthenticatedRequest(req);
+    const schedulingContext = session
+      ? buildCompiledSchedulingContext(
+          await getOrCreateUserSchedulingContext(session.user.id),
+        )
+      : null;
     const result = await runPlanningTurn({
       chatHistory,
       currentDraftPlanningState: normalizeDraftPlanningState(
         req.body.currentDraftPlanningState,
         createEmptyDraftPlanningState(),
       ),
+      ...(schedulingContext ? { schedulingContext } : {}),
     });
 
     return res.json(result);
