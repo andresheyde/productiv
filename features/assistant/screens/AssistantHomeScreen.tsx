@@ -14,7 +14,11 @@ import { usePathname } from "expo-router";
 
 import { useAuth } from "@/features/auth/AuthProvider";
 import { connectGoogleCalendar } from "@/features/auth/googleAuth";
-import type { AssistantTurnMode } from "@/features/assistant/types";
+import type {
+  AssistantMessage,
+  AssistantTurnMode,
+  ScheduleProposal,
+} from "@/features/assistant/types";
 import { getSessionTokenFromUrl } from "@/features/schedule/utils/scheduleAuth";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
 
@@ -61,6 +65,12 @@ export default function AssistantHomeScreen() {
   const [composerMode, setComposerMode] = useState<AssistantTurnMode>("chat");
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [proposalFeedbackDrafts, setProposalFeedbackDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [actedProposalIds, setActedProposalIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const statusLabel = useMemo(() => {
     if (!isAuthenticated) {
@@ -136,6 +146,46 @@ export default function AssistantHomeScreen() {
     setComposerValue((currentValue) =>
       getNextQuickActionComposerValue(currentValue, action),
     );
+  }
+
+  async function handleProposalDecision(
+    proposal: ScheduleProposal,
+    decision: "accept" | "reject",
+  ) {
+    if (isSendingMessage || actedProposalIds.has(proposal.id)) {
+      return;
+    }
+
+    const feedback = proposalFeedbackDrafts[proposal.id]?.trim();
+    const decisionText =
+      decision === "accept"
+        ? `Confirm schedule proposal ${proposal.id}.`
+        : `Dismiss schedule proposal ${proposal.id}.`;
+    const message = feedback
+      ? `${decisionText} Feedback: ${feedback}`
+      : decisionText;
+
+    setActedProposalIds((currentIds) => new Set(currentIds).add(proposal.id));
+
+    const didSend = await sendAssistantTurn({
+      message,
+      mode: "chat",
+    });
+
+    if (didSend) {
+      setProposalFeedbackDrafts((currentDrafts) => {
+        const nextDrafts = { ...currentDrafts };
+        delete nextDrafts[proposal.id];
+        return nextDrafts;
+      });
+      return;
+    }
+
+    setActedProposalIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.delete(proposal.id);
+      return nextIds;
+    });
   }
 
   return (
@@ -343,6 +393,7 @@ export default function AssistantHomeScreen() {
           ) : null}
 
           <ScrollView
+            keyboardShouldPersistTaps="handled"
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingBottom: 16,
@@ -395,44 +446,22 @@ export default function AssistantHomeScreen() {
             ) : null}
 
             {messages.map((message) => (
-              <View
+              <AssistantChatMessage
                 key={message.id}
-                style={{
-                  alignSelf:
-                    message.role === "user" ? "flex-end" : "flex-start",
-                  maxWidth: "92%",
-                  borderRadius: 22,
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
-                  backgroundColor:
-                    message.role === "user" ? "#123a35" : "#fffaf2",
-                  borderWidth: message.role === "assistant" ? 1 : 0,
-                  borderColor: "#ddd3c3",
+                actedProposalIds={actedProposalIds}
+                feedbackDrafts={proposalFeedbackDrafts}
+                isSendingMessage={isSendingMessage}
+                message={message}
+                onChangeFeedback={(proposalId, value) => {
+                  setProposalFeedbackDrafts((currentDrafts) => ({
+                    ...currentDrafts,
+                    [proposalId]: value,
+                  }));
                 }}
-              >
-                <Text
-                  style={{
-                    fontSize: 11,
-                    fontWeight: "700",
-                    letterSpacing: 0.6,
-                    textTransform: "uppercase",
-                    marginBottom: 8,
-                    color:
-                      message.role === "user" ? "#bfd1ca" : "#65716d",
-                  }}
-                >
-                  {message.role === "user" ? "You" : "Productiv"}
-                </Text>
-                <Text
-                  style={{
-                    color:
-                      message.role === "user" ? "#f4f0e8" : "#162a26",
-                    lineHeight: 22,
-                  }}
-                >
-                  {message.content}
-                </Text>
-              </View>
+                onProposalDecision={(proposal, decision) => {
+                  void handleProposalDecision(proposal, decision);
+                }}
+              />
             ))}
 
             {isSendingMessage ? (
@@ -585,4 +614,560 @@ function getNextQuickActionComposerValue(
   }
 
   return currentValue.trim().length > 0 ? currentValue : action.prompt;
+}
+
+function AssistantChatMessage({
+  actedProposalIds,
+  feedbackDrafts,
+  isSendingMessage,
+  message,
+  onChangeFeedback,
+  onProposalDecision,
+}: {
+  actedProposalIds: Set<string>;
+  feedbackDrafts: Record<string, string>;
+  isSendingMessage: boolean;
+  message: AssistantMessage;
+  onChangeFeedback: (proposalId: string, value: string) => void;
+  onProposalDecision: (
+    proposal: ScheduleProposal,
+    decision: "accept" | "reject",
+  ) => void;
+}) {
+  const scheduleProposals = getMessageScheduleProposals(message);
+
+  return (
+    <View
+      style={{
+        alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+        maxWidth: message.role === "assistant" && scheduleProposals.length > 0
+          ? "100%"
+          : "92%",
+        borderRadius: 22,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        backgroundColor: message.role === "user" ? "#123a35" : "#fffaf2",
+        borderWidth: message.role === "assistant" ? 1 : 0,
+        borderColor: "#ddd3c3",
+        gap: scheduleProposals.length > 0 ? 14 : 0,
+      }}
+    >
+      <View>
+        <Text
+          style={{
+            fontSize: 11,
+            fontWeight: "700",
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+            marginBottom: 8,
+            color: message.role === "user" ? "#bfd1ca" : "#65716d",
+          }}
+        >
+          {message.role === "user" ? "You" : "Productiv"}
+        </Text>
+        <Text
+          style={{
+            color: message.role === "user" ? "#f4f0e8" : "#162a26",
+            lineHeight: 22,
+          }}
+        >
+          {message.content}
+        </Text>
+      </View>
+
+      {scheduleProposals.map((proposal) => (
+        <ScheduleProposalCard
+          key={proposal.id}
+          feedbackValue={feedbackDrafts[proposal.id] ?? ""}
+          hasActed={actedProposalIds.has(proposal.id)}
+          isSendingMessage={isSendingMessage}
+          onChangeFeedback={(value) => onChangeFeedback(proposal.id, value)}
+          onDecision={(decision) => onProposalDecision(proposal, decision)}
+          proposal={proposal}
+        />
+      ))}
+    </View>
+  );
+}
+
+function ScheduleProposalCard({
+  feedbackValue,
+  hasActed,
+  isSendingMessage,
+  onChangeFeedback,
+  onDecision,
+  proposal,
+}: {
+  feedbackValue: string;
+  hasActed: boolean;
+  isSendingMessage: boolean;
+  onChangeFeedback: (value: string) => void;
+  onDecision: (decision: "accept" | "reject") => void;
+  proposal: ScheduleProposal;
+}) {
+  const canAct = proposal.status === "draft" && !hasActed && !isSendingMessage;
+
+  return (
+    <View
+      style={{
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: "#cfd8d3",
+        backgroundColor: "#f6f1e8",
+        overflow: "hidden",
+      }}
+    >
+      <View
+        style={{
+          paddingHorizontal: 14,
+          paddingTop: 14,
+          paddingBottom: 10,
+          gap: 8,
+        }}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 10,
+          }}
+        >
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text
+              style={{
+                color: "#132521",
+                fontSize: 16,
+                fontWeight: "800",
+              }}
+            >
+              {proposal.title}
+            </Text>
+            <Text
+              style={{
+                color: "#5a6762",
+                lineHeight: 20,
+              }}
+            >
+              {proposal.summary}
+            </Text>
+          </View>
+          <View
+            style={{
+              borderRadius: 999,
+              backgroundColor: getProposalStatusColor(proposal.status),
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+            }}
+          >
+            <Text
+              style={{
+                color: "#123a35",
+                fontSize: 11,
+                fontWeight: "800",
+                textTransform: "uppercase",
+              }}
+            >
+              {proposal.status}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+        style={{
+          maxHeight: 300,
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
+          borderColor: "#ddd3c3",
+        }}
+        contentContainerStyle={{
+          padding: 14,
+          gap: 12,
+        }}
+      >
+        {proposal.operations.map((operation, index) => (
+          <View
+            key={`${proposal.id}-${operation.taskId}-${operation.startTime}-${index}`}
+            style={{
+              borderRadius: 14,
+              backgroundColor: "#fffaf2",
+              padding: 12,
+              gap: 8,
+            }}
+          >
+            <Text
+              style={{
+                color: "#132521",
+                fontWeight: "800",
+              }}
+            >
+              {operation.title}
+            </Text>
+            {operation.description ? (
+              <Text
+                style={{
+                  color: "#5a6762",
+                  lineHeight: 20,
+                }}
+              >
+                {operation.description}
+              </Text>
+            ) : null}
+            <ProposalDetailRow label="Starts" value={formatProposalDateTime(operation.startTime)} />
+            <ProposalDetailRow label="Ends" value={formatProposalDateTime(operation.endTime)} />
+          </View>
+        ))}
+
+        {proposal.conflictAnnotations.length > 0 ? (
+          <View
+            style={{
+              borderRadius: 14,
+              backgroundColor: "#fbe9e6",
+              padding: 12,
+              gap: 8,
+            }}
+          >
+            <Text
+              style={{
+                color: "#7f2d24",
+                fontWeight: "800",
+              }}
+            >
+              Conflicts to review
+            </Text>
+            {proposal.conflictAnnotations.map((conflict, index) => (
+              <View key={`${proposal.id}-conflict-${index}`} style={{ gap: 2 }}>
+                <Text
+                  style={{
+                    color: "#7f2d24",
+                    fontWeight: "700",
+                  }}
+                >
+                  {conflict.title}
+                </Text>
+                <Text
+                  style={{
+                    color: "#7f2d24",
+                    lineHeight: 19,
+                  }}
+                >
+                  {conflict.detail}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View
+            style={{
+              borderRadius: 14,
+              backgroundColor: "#d7e7e1",
+              padding: 12,
+            }}
+          >
+            <Text
+              style={{
+                color: "#123a35",
+                fontWeight: "700",
+              }}
+            >
+              No saved scheduling conflicts found.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+
+      <View
+        style={{
+          padding: 14,
+          gap: 10,
+        }}
+      >
+        <TextInput
+          value={feedbackValue}
+          onChangeText={onChangeFeedback}
+          editable={canAct}
+          multiline
+          placeholder="Add feedback before accepting or rejecting..."
+          placeholderTextColor="#88938f"
+          style={{
+            minHeight: 72,
+            borderRadius: 14,
+            backgroundColor: "#fffaf2",
+            borderWidth: 1,
+            borderColor: "#ddd3c3",
+            color: "#162a26",
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            textAlignVertical: "top",
+          }}
+        />
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 10,
+          }}
+        >
+          <ProposalDecisionButton
+            disabled={!canAct}
+            label={hasActed ? "Sent" : "Accept"}
+            onPress={() => onDecision("accept")}
+            variant="accept"
+          />
+          <ProposalDecisionButton
+            disabled={!canAct}
+            label="Reject"
+            onPress={() => onDecision("reject")}
+            variant="reject"
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ProposalDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        gap: 12,
+      }}
+    >
+      <Text
+        style={{
+          color: "#65716d",
+          fontWeight: "700",
+        }}
+      >
+        {label}
+      </Text>
+      <Text
+        style={{
+          color: "#162a26",
+          flex: 1,
+          textAlign: "right",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function ProposalDecisionButton({
+  disabled,
+  label,
+  onPress,
+  variant,
+}: {
+  disabled: boolean;
+  label: string;
+  onPress: () => void;
+  variant: "accept" | "reject";
+}) {
+  const activeColor = variant === "accept" ? "#123a35" : "#7f2d24";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={{
+        flex: 1,
+        borderRadius: 14,
+        alignItems: "center",
+        paddingHorizontal: 12,
+        paddingVertical: 13,
+        backgroundColor: disabled ? "#cdd6d2" : activeColor,
+      }}
+    >
+      <Text
+        style={{
+          color: "#f4f0e8",
+          fontWeight: "800",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function getMessageScheduleProposals(message: AssistantMessage) {
+  if (message.role !== "assistant") {
+    return [];
+  }
+
+  const payload = message.structuredPayload;
+  const directProposals = getScheduleProposalArray(payload.scheduleProposals);
+  const sideEffectProposals =
+    payload.sideEffects &&
+    typeof payload.sideEffects === "object" &&
+    !Array.isArray(payload.sideEffects)
+      ? getScheduleProposalArray(
+          (payload.sideEffects as Record<string, unknown>).scheduleProposals,
+        )
+      : [];
+  const proposalsById = new Map<string, ScheduleProposal>();
+
+  [...directProposals, ...sideEffectProposals].forEach((proposal) => {
+    proposalsById.set(proposal.id, proposal);
+  });
+
+  return Array.from(proposalsById.values());
+}
+
+function getScheduleProposalArray(value: unknown): ScheduleProposal[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => normalizeScheduleProposal(item))
+    : [];
+}
+
+function normalizeScheduleProposal(value: unknown): ScheduleProposal[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (
+    typeof record.id !== "string" ||
+    typeof record.title !== "string" ||
+    typeof record.status !== "string" ||
+    typeof record.summary !== "string"
+  ) {
+    return [];
+  }
+
+  return [
+    {
+      id: record.id,
+      threadId: typeof record.threadId === "string" ? record.threadId : null,
+      title: record.title,
+      status: normalizeProposalStatus(record.status),
+      intent: typeof record.intent === "string" ? record.intent : null,
+      summary: record.summary,
+      operations: normalizeProposalOperations(record.operations),
+      conflictAnnotations: normalizeProposalConflicts(record.conflictAnnotations),
+      feedbackHistory: Array.isArray(record.feedbackHistory)
+        ? record.feedbackHistory.filter(
+            (item): item is Record<string, unknown> =>
+              !!item && typeof item === "object" && !Array.isArray(item),
+          )
+        : [],
+      appliedAt: typeof record.appliedAt === "string" ? record.appliedAt : null,
+      createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
+      updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+    },
+  ];
+}
+
+function normalizeProposalStatus(value: string): ScheduleProposal["status"] {
+  return value === "confirmed" ||
+    value === "applied" ||
+    value === "superseded" ||
+    value === "canceled"
+    ? value
+    : "draft";
+}
+
+function normalizeProposalOperations(value: unknown): ScheduleProposal["operations"] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return [];
+        }
+
+        const record = item as Record<string, unknown>;
+
+        if (
+          record.type !== "schedule_task" ||
+          typeof record.taskId !== "string" ||
+          typeof record.title !== "string" ||
+          typeof record.description !== "string" ||
+          typeof record.startTime !== "string" ||
+          typeof record.endTime !== "string"
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            type: "schedule_task" as const,
+            taskId: record.taskId,
+            title: record.title,
+            description: record.description,
+            startTime: record.startTime,
+            endTime: record.endTime,
+          },
+        ];
+      })
+    : [];
+}
+
+function normalizeProposalConflicts(
+  value: unknown,
+): ScheduleProposal["conflictAnnotations"] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return [];
+        }
+
+        const record = item as Record<string, unknown>;
+
+        if (
+          typeof record.title !== "string" ||
+          typeof record.detail !== "string" ||
+          (record.strength !== "hard_constraint" &&
+            record.strength !== "soft_preference")
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            type:
+              record.type === "work_hours" ||
+              record.type === "no_schedule_window" ||
+              record.type === "sleep_window" ||
+              record.type === "latest_work_end" ||
+              record.type === "recovery_day"
+                ? record.type
+                : "work_hours",
+            title: record.title,
+            detail: record.detail,
+            strength: record.strength,
+          },
+        ];
+      })
+    : [];
+}
+
+function formatProposalDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function getProposalStatusColor(status: ScheduleProposal["status"]) {
+  if (status === "applied" || status === "confirmed") {
+    return "#d7e7e1";
+  }
+
+  if (status === "canceled" || status === "superseded") {
+    return "#f3d0c9";
+  }
+
+  return "#efe1bc";
 }

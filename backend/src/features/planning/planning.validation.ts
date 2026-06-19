@@ -98,7 +98,7 @@ export function normalizeGeneratedPlan(value: unknown): GeneratedPlan {
       [],
     ),
     timeAvailability: getRequiredString(record.timeAvailability),
-    timeProtectionPlan: getRequiredNonEmptyStringArray(record.timeProtectionPlan),
+    timeProtectionPlan: getStringArray(record.timeProtectionPlan, []),
     limitingHabits: getStringArray(record.limitingHabits, []),
     scriptedActions: getStringArray(record.scriptedActions, []),
     environmentalOptimizations: getStringArray(
@@ -111,16 +111,24 @@ export function normalizeGeneratedPlan(value: unknown): GeneratedPlan {
 }
 
 export function canGeneratePlan(draft: DraftPlanningState): boolean {
-  return (
-    draft.mediumTermGoal !== null &&
-    (draft.thirtyDayPerformanceGoals.length > 0 ||
-      draft.fourteenDayPerformanceGoals.length > 0) &&
-    draft.timeAvailability !== null &&
-    draft.timeProtectionPlan.length > 0 &&
-    (draft.limitingHabits.length > 0 ||
-      draft.scriptedActions.length > 0 ||
-      draft.environmentalOptimizations.length > 0)
-  );
+  return getMissingPlanRequirements(draft).length === 0;
+}
+
+export function getMissingPlanRequirements(draft: DraftPlanningState): string[] {
+  const missingFields: string[] = [];
+
+  if (draft.mediumTermGoal === null) {
+    missingFields.push("a concrete goal outcome");
+  }
+
+  if (
+    draft.thirtyDayPerformanceGoals.length === 0 &&
+    draft.fourteenDayPerformanceGoals.length === 0
+  ) {
+    missingFields.push("at least one milestone, task, or tracking target");
+  }
+
+  return missingFields;
 }
 
 function asRecord(value: unknown): JsonRecord {

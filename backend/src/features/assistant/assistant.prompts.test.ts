@@ -74,9 +74,15 @@ test("assistant schemas require model response fields used by the service", () =
 test("assistant instructions constrain scheduling and workspace mutations", () => {
   const instructions = createAssistantTurnInstructions();
 
+  assert.match(instructions, /Identify the user's intent first/u);
+  assert.match(instructions, /minimum missing information/u);
+  assert.match(instructions, /do not require barrier analysis/u);
+  assert.match(instructions, /later reflection data/u);
   assert.match(instructions, /Only create or update goals/u);
+  assert.match(instructions, /When enough information exists/u);
   assert.match(instructions, /propose_schedule_task/u);
   assert.match(instructions, /confirm_schedule_proposal/u);
+  assert.match(instructions, /Never say a record was created/u);
   assert.match(instructions, /Return valid JSON/u);
 });
 

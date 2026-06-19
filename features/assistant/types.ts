@@ -5,6 +5,7 @@ import type {
   Task,
   WorkLog,
 } from "@/features/workspace/types";
+import type { SchedulingConflict } from "@/features/scheduling-context/types";
 
 export type AssistantThread = {
   id: string;
@@ -36,10 +37,35 @@ export type AssistantNavigationHint =
 
 export type AssistantSideEffect = {
   goals: Goal[];
+  scheduleProposals: ScheduleProposal[];
   tasks: Task[];
   metrics: GoalMetric[];
   workLogs: WorkLog[];
   metricEntries: MetricProgressEntry[];
+};
+
+export type ScheduleProposalOperation = {
+  type: "schedule_task";
+  taskId: string;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+};
+
+export type ScheduleProposal = {
+  id: string;
+  threadId: string | null;
+  title: string;
+  status: "draft" | "confirmed" | "applied" | "superseded" | "canceled";
+  intent: string | null;
+  summary: string;
+  operations: ScheduleProposalOperation[];
+  conflictAnnotations: SchedulingConflict[];
+  feedbackHistory: Record<string, unknown>[];
+  appliedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type AssistantThreadResponse = {

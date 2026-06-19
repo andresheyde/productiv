@@ -92,3 +92,15 @@ export type UserSchedulingContextUpdate = Partial<
     | "additionalNotes"
   >
 >;
+
+export type SchedulingConflict = {
+  type:
+    | "work_hours"
+    | "no_schedule_window"
+    | "sleep_window"
+    | "latest_work_end"
+    | "recovery_day";
+  title: string;
+  detail: string;
+  strength: SchedulingPreferenceRuleStrength;
+};

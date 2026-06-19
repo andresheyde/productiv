@@ -94,7 +94,66 @@ test("runPlanningTurn does not synthesize a plan when plan_ready lacks required 
   assert.equal(provider.calls.length, 1);
   assert.match(provider.calls[0]?.input ?? "", /"preferredFocusBlockMinutes": 90/u);
   assert.equal(result.status, "needs_clarification");
+  assert.match(result.assistantMessage, /I need one more concrete detail/u);
+  assert.doesNotMatch(result.assistantMessage, /enough to draft/u);
   assert.equal(result.generatedPlan, null);
+});
+
+test("runPlanningTurn synthesizes a goal without optional barrier analysis", async () => {
+  const trackableDraft = {
+    ...createEmptyDraftPlanningState(),
+    direction: ["Land a backend software developer role"],
+    mediumTermGoal: "Secure a backend software developer job within 3 months",
+    thirtyDayPerformanceGoals: [
+      "Finish the system design course and apply to 300 jobs",
+    ],
+    timeAvailability: "Weekdays during normal work hours",
+  };
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "I have enough to create a first trackable goal.",
+      draftPlanningState: trackableDraft,
+      status: "plan_ready",
+    },
+    {
+      direction: "Land a backend software developer role",
+      mediumTermGoal: "Secure a backend software developer job within 3 months",
+      thirtyDayPerformanceGoals: [
+        "Finish the system design course and apply to 300 jobs",
+      ],
+      fourteenDayPerformanceGoals: [],
+      timeAvailability: "Weekdays during normal work hours",
+      timeProtectionPlan: [],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+      constraints: ["Keep weekends open"],
+      summary:
+        "Create a focused job-search plan around system design, portfolio work, and daily applications.",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [
+      {
+        role: "user",
+        content:
+          "I want a backend software developer job within 3 months and need to apply to 300 jobs.",
+      },
+    ],
+    currentDraftPlanningState: createEmptyDraftPlanningState(),
+  });
+
+  assert.equal(provider.calls.length, 2);
+  assert.equal(provider.calls[1]?.schemaName, "generated_plan");
+  assert.equal(result.status, "plan_ready");
+  assert.equal(result.generatedPlan?.timeProtectionPlan.length, 0);
+  assert.deepEqual(result.generatedPlan?.limitingHabits, []);
+  assert.equal(
+    result.generatedPlan?.mediumTermGoal,
+    "Secure a backend software developer job within 3 months",
+  );
 });
 
 test("runPlanningTurn synthesizes a generated plan when the draft is complete", async () => {

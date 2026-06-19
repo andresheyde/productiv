@@ -7,6 +7,7 @@ import type {
   TaskRecord,
   WorkLogRecord,
 } from "../workspace/workspace.types.ts";
+import type { ScheduleProposalRecord } from "./schedule-proposals.repository.ts";
 
 export type AssistantTurnMode = "chat" | "work_log";
 
@@ -78,6 +79,7 @@ export type WorkLogModelResponse = {
 
 export type AssistantSideEffects = {
   goals: GoalRecord[];
+  scheduleProposals: ScheduleProposalRecord[];
   tasks: TaskRecord[];
   metrics: GoalMetricRecord[];
   workLogs: WorkLogRecord[];

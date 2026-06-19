@@ -406,6 +406,7 @@ async function handleGeneralAssistantTurn(input: {
         content: assistantMessage,
         structuredPayload: {
           actions: modelResponse.actions,
+          scheduleProposals: sideEffects.scheduleProposals,
           sideEffects,
         },
       },
@@ -794,6 +795,7 @@ async function createProposalFromSchedulingAction(
   );
 
   input.pendingProposalsById.set(proposal.id, proposal);
+  input.sideEffects.scheduleProposals.push(proposal);
   input.warnings.push(
     `${options?.reason ?? "I saved that as a schedule proposal for you to confirm before it touches the calendar."} ${buildProposalConfirmationHint(scheduleDetails, conflicts)}`,
   );
@@ -1189,6 +1191,7 @@ function inferTurnMode(
 function createEmptySideEffects(): AssistantSideEffects {
   return {
     goals: [],
+    scheduleProposals: [],
     tasks: [],
     metrics: [],
     workLogs: [],

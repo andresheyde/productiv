@@ -41,11 +41,15 @@ test("generated plan schema requires all fields used to create workspace records
   ]);
 });
 
-test("planning instructions stay focused on one-question intake", () => {
+test("planning instructions stay focused on fast goal intake", () => {
   const instructions = createPlanningTurnInstructions();
 
-  assert.match(instructions, /guided interviewer/u);
+  assert.match(instructions, /fast planning intake/u);
+  assert.match(instructions, /concrete medium-term outcome/u);
+  assert.match(instructions, /Do not require barrier analysis/u);
+  assert.match(instructions, /later reflection data/u);
   assert.match(instructions, /Ask one focused question at a time/u);
+  assert.match(instructions, /Never tell the user a goal was created/u);
   assert.match(instructions, /status to plan_ready/u);
   assert.match(instructions, /valid JSON/u);
 });
@@ -54,6 +58,7 @@ test("plan synthesis instructions produce a draft instead of a follow-up questio
   const instructions = createPlanSynthesisInstructions();
 
   assert.match(instructions, /first structured planning draft/u);
+  assert.match(instructions, /Use empty arrays for optional fields/u);
   assert.match(instructions, /Do not ask questions/u);
   assert.match(instructions, /valid JSON/u);
 });

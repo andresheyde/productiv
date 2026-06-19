@@ -4,6 +4,7 @@ import test from "node:test";
 import { createEmptyDraftPlanningState } from "./planning.types.ts";
 import {
   canGeneratePlan,
+  getMissingPlanRequirements,
   normalizeGeneratedPlan,
   normalizeDraftPlanningState,
   normalizePlanningTurnExtraction,
@@ -135,6 +136,23 @@ test("normalizeGeneratedPlan trims required fields and optional arrays", () => {
     constraints: ["No Sunday deep work"],
     summary: "A cautious launch plan",
   });
+
+  assert.deepEqual(
+    normalizeGeneratedPlan({
+      direction: "Build toward a calmer product launch",
+      mediumTermGoal: "Ship the beta",
+      thirtyDayPerformanceGoals: ["Finish onboarding"],
+      fourteenDayPerformanceGoals: [],
+      timeAvailability: "Not specified yet",
+      timeProtectionPlan: [],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+      constraints: [],
+      summary: "A cautious launch plan",
+    }).timeProtectionPlan,
+    [],
+  );
 });
 
 test("normalizeGeneratedPlan rejects missing required plan fields", () => {
@@ -180,33 +198,41 @@ test("normalizeGeneratedPlan rejects missing required plan fields", () => {
   );
 });
 
-test("canGeneratePlan requires goal, time, protection, and barrier details", () => {
+test("canGeneratePlan requires only core trackable goal details", () => {
   const emptyDraft = createEmptyDraftPlanningState();
   assert.equal(canGeneratePlan(emptyDraft), false);
+  assert.deepEqual(getMissingPlanRequirements(emptyDraft), [
+    "a concrete goal outcome",
+    "at least one milestone, task, or tracking target",
+  ]);
 
   const withMediumTermGoal = {
     ...emptyDraft,
     mediumTermGoal: "Ship the beta",
   };
   assert.equal(canGeneratePlan(withMediumTermGoal), false);
+  assert.deepEqual(getMissingPlanRequirements(withMediumTermGoal), [
+    "at least one milestone, task, or tracking target",
+  ]);
 
   const withShortGoal = {
     ...withMediumTermGoal,
     fourteenDayPerformanceGoals: ["Finish onboarding"],
   };
-  assert.equal(canGeneratePlan(withShortGoal), false);
+  assert.equal(canGeneratePlan(withShortGoal), true);
+  assert.deepEqual(getMissingPlanRequirements(withShortGoal), []);
 
   const withTime = {
     ...withShortGoal,
     timeAvailability: "Weekday evenings",
   };
-  assert.equal(canGeneratePlan(withTime), false);
+  assert.equal(canGeneratePlan(withTime), true);
 
   const withProtectedTime = {
     ...withTime,
     timeProtectionPlan: ["Tuesday 7pm to 9pm"],
   };
-  assert.equal(canGeneratePlan(withProtectedTime), false);
+  assert.equal(canGeneratePlan(withProtectedTime), true);
 
   assert.equal(
     canGeneratePlan({
