@@ -229,6 +229,13 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
         setWorkLogs((previousWorkLogs) =>
           upsertRecords(previousWorkLogs, response.sideEffects.workLogs, true),
         );
+        setSchedulingSuggestions((previousSuggestions) =>
+          upsertRecords(
+            previousSuggestions,
+            response.sideEffects.schedulingSuggestions,
+            true,
+          ),
+        );
         return true;
       } catch (error) {
         setMessages((previousMessages) =>
@@ -448,15 +455,25 @@ function upsertRecords<T extends { id: string }>(
   }
 
   return records.sort((left, right) => {
-    const leftDate =
-      "recordedAt" in left && typeof left.recordedAt === "string"
-        ? left.recordedAt
-        : left.id;
-    const rightDate =
-      "recordedAt" in right && typeof right.recordedAt === "string"
-        ? right.recordedAt
-        : right.id;
+    const leftDate = getRecordSortDate(left);
+    const rightDate = getRecordSortDate(right);
 
     return rightDate.localeCompare(leftDate);
   });
+}
+
+function getRecordSortDate(record: { id: string }) {
+  if ("recordedAt" in record && typeof record.recordedAt === "string") {
+    return record.recordedAt;
+  }
+
+  if ("createdAt" in record && typeof record.createdAt === "string") {
+    return record.createdAt;
+  }
+
+  if ("updatedAt" in record && typeof record.updatedAt === "string") {
+    return record.updatedAt;
+  }
+
+  return record.id;
 }

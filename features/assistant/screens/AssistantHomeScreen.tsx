@@ -49,6 +49,12 @@ const QUICK_ACTIONS: QuickAction[] = [
     mode: "chat",
     prompt: "Please schedule this task on my calendar: ",
   },
+  {
+    label: "Reflect on schedule",
+    mode: "schedule_reflection",
+    prompt:
+      "I want to reflect on my schedule. What worked was ..., what didn't work was ..., and what got in the way was ...",
+  },
 ];
 
 export default function AssistantHomeScreen() {
@@ -77,7 +83,15 @@ export default function AssistantHomeScreen() {
       return "Google connection required";
     }
 
-    return composerMode === "work_log" ? "Work log mode" : "Chat mode";
+    if (composerMode === "work_log") {
+      return "Work log mode";
+    }
+
+    if (composerMode === "schedule_reflection") {
+      return "Schedule reflection mode";
+    }
+
+    return "Chat mode";
   }, [composerMode, isAuthenticated]);
 
   async function handleConnect() {
@@ -516,9 +530,11 @@ export default function AssistantHomeScreen() {
               >
                 {composerMode === "work_log"
                   ? "Work log extraction is on"
+                  : composerMode === "schedule_reflection"
+                    ? "Schedule reflection is on"
                   : "Chat mode is on"}
               </Text>
-              {composerMode === "work_log" ? (
+              {composerMode !== "chat" ? (
                 <Pressable
                   onPress={() => setComposerMode("chat")}
                   style={{
@@ -548,6 +564,8 @@ export default function AssistantHomeScreen() {
               placeholder={
                 composerMode === "work_log"
                   ? "Log what you worked on and include the amount if you want progress extracted..."
+                  : composerMode === "schedule_reflection"
+                    ? "What worked, what didn't, and what got in the way?"
                   : "Message Productiv..."
               }
               placeholderTextColor="#88938f"

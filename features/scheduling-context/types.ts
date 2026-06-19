@@ -65,6 +65,26 @@ export type DerivedSchedulingSuggestion = SchedulingPreferenceRule & {
   status: "suggested";
 };
 
+export type ScheduleReflectionStrategySuggestion = {
+  title: string;
+  detail: string;
+  strength: SchedulingPreferenceRuleStrength;
+  confidence: RuleConfidence;
+  obstacle?: string | null;
+};
+
+export type ScheduleReflection = {
+  id: string;
+  timeframeStart: string;
+  timeframeEnd: string;
+  userNarrative: string;
+  extractedBlockers: string[];
+  effectiveConditions: string[];
+  recurringPreferences: string[];
+  recommendedMemoryUpdates: ScheduleReflectionStrategySuggestion[];
+  createdAt: string;
+};
+
 export type UserSchedulingContext = {
   workHours: WorkHoursRule[];
   noScheduleWindows: SchedulingTimeWindow[];

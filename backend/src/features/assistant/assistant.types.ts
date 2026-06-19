@@ -7,9 +7,13 @@ import type {
   TaskRecord,
   WorkLogRecord,
 } from "../workspace/workspace.types.ts";
+import type {
+  DerivedSchedulingSuggestionRecord,
+  ScheduleReflectionRecord,
+} from "../scheduling-context/scheduling-context.types.ts";
 import type { ScheduleProposalRecord } from "./schedule-proposals.repository.ts";
 
-export type AssistantTurnMode = "chat" | "work_log";
+export type AssistantTurnMode = "chat" | "work_log" | "schedule_reflection";
 
 export type AssistantNavigationHint =
   | "chat"
@@ -77,9 +81,33 @@ export type WorkLogModelResponse = {
   progressUpdates: WorkLogProgressUpdate[];
 };
 
+export type ScheduleReflectionStrategySuggestion = {
+  title: string;
+  detail: string;
+  strength: "hard_constraint" | "soft_preference";
+  confidence: "low" | "medium" | "high";
+  obstacle: string | null;
+};
+
+export type ScheduleReflectionModelResponse = {
+  assistantMessage: string;
+  shouldSaveReflection: boolean;
+  summary: string;
+  contextSummary: string;
+  navigationHint: AssistantNavigationHint;
+  timeframeStart: string | null;
+  timeframeEnd: string | null;
+  liked: string[];
+  disliked: string[];
+  obstacles: string[];
+  strategySuggestions: ScheduleReflectionStrategySuggestion[];
+};
+
 export type AssistantSideEffects = {
   goals: GoalRecord[];
   scheduleProposals: ScheduleProposalRecord[];
+  scheduleReflections: ScheduleReflectionRecord[];
+  schedulingSuggestions: DerivedSchedulingSuggestionRecord[];
   tasks: TaskRecord[];
   metrics: GoalMetricRecord[];
   workLogs: WorkLogRecord[];

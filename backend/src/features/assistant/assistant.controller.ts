@@ -45,7 +45,9 @@ export async function postAssistantTurn(
 
   try {
     const mode =
-      req.body.mode === "chat" || req.body.mode === "work_log"
+      req.body.mode === "chat" ||
+      req.body.mode === "work_log" ||
+      req.body.mode === "schedule_reflection"
         ? req.body.mode
         : undefined;
 

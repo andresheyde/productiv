@@ -11,6 +11,8 @@ import { runPlanningTurn } from "../planning/planning.service.ts";
 import type { PlanningChatMessage } from "../planning/planning.types.ts";
 import {
   buildCompiledSchedulingContext,
+  createDerivedSchedulingSuggestionsFromReflection,
+  createScheduleReflection,
   detectSchedulingConflicts,
   getOrCreateUserSchedulingContext,
 } from "../scheduling-context/scheduling-context.repository.ts";
@@ -21,12 +23,16 @@ import type {
 } from "../scheduling-context/scheduling-context.types.ts";
 import {
   buildAssistantTurnInput,
+  buildScheduleReflectionInput,
   buildWorkLogInput,
   createAssistantTurnInstructions,
+  createScheduleReflectionInstructions,
   createWorkLogInstructions,
   normalizeAssistantModelResponse,
+  normalizeScheduleReflectionModelResponse,
   normalizeWorkLogModelResponse,
   ASSISTANT_TURN_SCHEMA,
+  SCHEDULE_REFLECTION_SCHEMA,
   WORK_LOG_SCHEMA,
 } from "./assistant.prompts.ts";
 import {
@@ -104,7 +110,10 @@ export async function runAssistantTurn(input: {
   await appendAssistantMessage({
     threadId: thread.id,
     role: "user",
-    intent: input.mode === "work_log" ? "work_log" : "chat",
+    intent:
+      input.mode === "work_log" || input.mode === "schedule_reflection"
+        ? input.mode
+        : "chat",
     content: trimmedMessage,
   });
 
@@ -142,6 +151,20 @@ export async function runAssistantTurn(input: {
     });
   }
 
+  if (inferredMode === "schedule_reflection") {
+    return handleScheduleReflectionTurn({
+      threadId: thread.id,
+      userId: input.user.id,
+      message: trimmedMessage,
+      messages,
+      goals,
+      tasks,
+      metrics,
+      workLogs,
+      compiledSchedulingContext,
+    });
+  }
+
   return handleGeneralAssistantTurn({
     threadId: thread.id,
     userId: input.user.id,
@@ -156,6 +179,149 @@ export async function runAssistantTurn(input: {
     compiledSchedulingContext,
     pendingScheduleProposals,
   });
+}
+
+async function handleScheduleReflectionTurn(input: {
+  threadId: string;
+  userId: string;
+  message: string;
+  messages: AssistantMessageRecord[];
+  goals: GoalRecord[];
+  tasks: TaskRecord[];
+  metrics: GoalMetricRecord[];
+  workLogs: Awaited<ReturnType<typeof listWorkLogs>>;
+  compiledSchedulingContext: CompiledSchedulingContext;
+}): Promise<AssistantTurnResponse> {
+  const aiProvider = getStructuredAiProvider();
+  const modelResponse = normalizeScheduleReflectionModelResponse(
+    await aiProvider.generateJson({
+      instructions: createScheduleReflectionInstructions(),
+      input: buildScheduleReflectionInput({
+        message: input.message,
+        goals: input.goals,
+        tasks: input.tasks,
+        metrics: input.metrics,
+        workLogs: input.workLogs.slice(0, 8),
+        messages: input.messages.slice(-10).map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        schedulingContext: input.compiledSchedulingContext,
+      }),
+      schemaName: "schedule_reflection",
+      schema: SCHEDULE_REFLECTION_SCHEMA,
+    }),
+  );
+
+  const sideEffects = createEmptySideEffects();
+  const client = await getRuntimePool().connect();
+
+  try {
+    await client.query("begin");
+
+    if (!modelResponse.shouldSaveReflection) {
+      await appendAssistantMessage(
+        {
+          threadId: input.threadId,
+          role: "assistant",
+          intent: "schedule_reflection_prompt",
+          content: modelResponse.assistantMessage,
+          structuredPayload: {
+            scheduleReflection: modelResponse,
+          },
+        },
+        client,
+      );
+      await updateAssistantThreadState(
+        {
+          threadId: input.threadId,
+          currentIntent: "schedule_reflection",
+          latestContextSummary: modelResponse.contextSummary,
+        },
+        client,
+      );
+      await client.query("commit");
+
+      return {
+        ...(await getAssistantThreadForUser(input.userId)),
+        assistantMessage: modelResponse.assistantMessage,
+        navigationHint: modelResponse.navigationHint,
+        sideEffects,
+      };
+    }
+
+    const { timeframeStart, timeframeEnd } = resolveReflectionDateRange(
+      modelResponse.timeframeStart,
+      modelResponse.timeframeEnd,
+    );
+    const reflection = await createScheduleReflection(
+      {
+        userId: input.userId,
+        timeframeStart,
+        timeframeEnd,
+        userNarrative: input.message,
+        extractedBlockers: [...modelResponse.disliked, ...modelResponse.obstacles],
+        effectiveConditions: modelResponse.liked,
+        recurringPreferences: [],
+        recommendedMemoryUpdates: modelResponse.strategySuggestions,
+      },
+      client,
+    );
+    sideEffects.scheduleReflections.push(reflection);
+
+    const schedulingSuggestions =
+      await createDerivedSchedulingSuggestionsFromReflection(
+        {
+          userId: input.userId,
+          reflectionId: reflection.id,
+          suggestions: modelResponse.strategySuggestions,
+        },
+        client,
+      );
+    sideEffects.schedulingSuggestions.push(...schedulingSuggestions);
+
+    const assistantMessage = appendReflectionSaveSummary(
+      modelResponse.assistantMessage,
+      schedulingSuggestions.length,
+    );
+
+    await appendAssistantMessage(
+      {
+        threadId: input.threadId,
+        role: "assistant",
+        intent: "schedule_reflection",
+        content: assistantMessage,
+        structuredPayload: {
+          scheduleReflection: reflection,
+          extractedReflection: modelResponse,
+          schedulingSuggestions,
+          sideEffects,
+        },
+      },
+      client,
+    );
+    await updateAssistantThreadState(
+      {
+        threadId: input.threadId,
+        currentIntent: "workspace_assistant",
+        latestContextSummary: modelResponse.contextSummary,
+      },
+      client,
+    );
+    await client.query("commit");
+
+    return {
+      ...(await getAssistantThreadForUser(input.userId)),
+      assistantMessage,
+      navigationHint: modelResponse.navigationHint ?? "calendar",
+      sideEffects,
+    };
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function handlePlanningTurn(input: {
@@ -1178,6 +1344,13 @@ function inferTurnMode(
   }
 
   if (
+    /\b(reflect|reflection|review|retro|retrospective)\b/i.test(message) &&
+    /\b(schedule|calendar|plan|planned|week|day)\b/i.test(message)
+  ) {
+    return "schedule_reflection";
+  }
+
+  if (
     hasMetrics &&
     /(worked|studied|finished|completed|practiced|logged|spent)\b/i.test(message) &&
     /\b\d+(\.\d+)?\b/.test(message)
@@ -1192,6 +1365,8 @@ function createEmptySideEffects(): AssistantSideEffects {
   return {
     goals: [],
     scheduleProposals: [],
+    scheduleReflections: [],
+    schedulingSuggestions: [],
     tasks: [],
     metrics: [],
     workLogs: [],
@@ -1205,6 +1380,35 @@ function appendWarnings(message: string, warnings: string[]) {
   }
 
   return `${message}\n\n${warnings.join(" ")}`;
+}
+
+function appendReflectionSaveSummary(message: string, suggestionCount: number) {
+  const suggestionSummary =
+    suggestionCount === 0
+      ? "I saved that schedule reflection. I did not create any new strategy suggestions from it yet."
+      : `I saved that schedule reflection and created ${suggestionCount} strategy suggestion${suggestionCount === 1 ? "" : "s"} for you to review.`;
+
+  return `${message}\n\n${suggestionSummary}`;
+}
+
+function resolveReflectionDateRange(
+  timeframeStart: string | null,
+  timeframeEnd: string | null,
+) {
+  const parsedEnd = parseOptionalIsoDate(timeframeEnd) ?? new Date();
+  const parsedStart = parseOptionalIsoDate(timeframeStart) ?? addDaysDate(parsedEnd, -7);
+
+  if (parsedStart > parsedEnd) {
+    return {
+      timeframeStart: addDaysDate(parsedEnd, -7),
+      timeframeEnd: parsedEnd,
+    };
+  }
+
+  return {
+    timeframeStart: parsedStart,
+    timeframeEnd: parsedEnd,
+  };
 }
 
 function formatConflictList(conflicts: SchedulingConflict[]) {
@@ -1291,6 +1495,12 @@ function addDaysIso(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString();
+}
+
+function addDaysDate(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
 }
 
 function findTaskByTitle(

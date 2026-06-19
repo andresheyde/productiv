@@ -5,7 +5,11 @@ import type {
   Task,
   WorkLog,
 } from "@/features/workspace/types";
-import type { SchedulingConflict } from "@/features/scheduling-context/types";
+import type {
+  DerivedSchedulingSuggestion,
+  ScheduleReflection,
+  SchedulingConflict,
+} from "@/features/scheduling-context/types";
 
 export type AssistantThread = {
   id: string;
@@ -26,7 +30,7 @@ export type AssistantMessage = {
   createdAt: string;
 };
 
-export type AssistantTurnMode = "chat" | "work_log";
+export type AssistantTurnMode = "chat" | "work_log" | "schedule_reflection";
 export type AssistantNavigationHint =
   | "chat"
   | "goals"
@@ -38,6 +42,8 @@ export type AssistantNavigationHint =
 export type AssistantSideEffect = {
   goals: Goal[];
   scheduleProposals: ScheduleProposal[];
+  scheduleReflections: ScheduleReflection[];
+  schedulingSuggestions: DerivedSchedulingSuggestion[];
   tasks: Task[];
   metrics: GoalMetric[];
   workLogs: WorkLog[];

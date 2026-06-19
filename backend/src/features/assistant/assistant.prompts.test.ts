@@ -4,12 +4,16 @@ import test from "node:test";
 import type { AssistantActionType } from "./assistant.types.ts";
 import {
   ASSISTANT_TURN_SCHEMA,
+  SCHEDULE_REFLECTION_SCHEMA,
   WORK_LOG_SCHEMA,
   buildAssistantTurnInput,
+  buildScheduleReflectionInput,
   buildWorkLogInput,
   createAssistantTurnInstructions,
+  createScheduleReflectionInstructions,
   createWorkLogInstructions,
   normalizeAssistantModelResponse,
+  normalizeScheduleReflectionModelResponse,
   normalizeWorkLogModelResponse,
 } from "./assistant.prompts.ts";
 
@@ -69,6 +73,20 @@ test("assistant schemas require model response fields used by the service", () =
     "taskId",
     "progressUpdates",
   ]);
+  assert.equal(SCHEDULE_REFLECTION_SCHEMA.type, "object");
+  assert.deepEqual(SCHEDULE_REFLECTION_SCHEMA.required, [
+    "assistantMessage",
+    "shouldSaveReflection",
+    "summary",
+    "contextSummary",
+    "navigationHint",
+    "timeframeStart",
+    "timeframeEnd",
+    "liked",
+    "disliked",
+    "obstacles",
+    "strategySuggestions",
+  ]);
 });
 
 test("assistant instructions constrain scheduling and workspace mutations", () => {
@@ -92,6 +110,16 @@ test("work log instructions require numeric metric evidence", () => {
   assert.match(instructions, /logging work in natural language/u);
   assert.match(instructions, /Do not guess amounts/u);
   assert.match(instructions, /progressUpdates empty/u);
+});
+
+test("schedule reflection instructions capture lived schedule feedback", () => {
+  const instructions = createScheduleReflectionInstructions();
+
+  assert.match(instructions, /current or previous schedule/u);
+  assert.match(instructions, /what worked, what did not work, obstacles/u);
+  assert.match(instructions, /ICS-style strategies/u);
+  assert.match(instructions, /shouldSaveReflection to false/u);
+  assert.match(instructions, /one to three suggestions/u);
 });
 
 test("assistant turn input serializes the latest message and workspace context", () => {
@@ -124,6 +152,23 @@ test("work log input serializes message and matching context", () => {
   assert.match(input, /"id": "goal-1"/u);
   assert.match(input, /"id": "task-1"/u);
   assert.match(input, /"id": "metric-1"/u);
+});
+
+test("schedule reflection input serializes schedule context and recent workspace state", () => {
+  const input = buildScheduleReflectionInput({
+    message: "Mornings worked, but I kept losing time after lunch.",
+    goals: [{ id: "goal-1" }],
+    tasks: [{ id: "task-1", dueAt: "2026-07-01T13:00:00.000Z" }],
+    metrics: [{ id: "metric-1" }],
+    workLogs: [{ id: "work-log-1" }],
+    messages: [{ role: "user", content: "Reflect on my week." }],
+    schedulingContext: { preferredFocusBlockMinutes: 60 },
+  });
+
+  assert.match(input, /Latest schedule reflection message/u);
+  assert.match(input, /Mornings worked/u);
+  assert.match(input, /Current tasks and schedule-relevant state/u);
+  assert.match(input, /"preferredFocusBlockMinutes": 60/u);
 });
 
 test("normalizeAssistantModelResponse accepts every supported action type", () => {
@@ -241,6 +286,55 @@ test("normalizeWorkLogModelResponse extracts valid progress updates", () => {
       { metricId: "metric-2", deltaValue: 1, note: null },
     ],
   });
+});
+
+test("normalizeScheduleReflectionModelResponse extracts reflection and strategy suggestions", () => {
+  const result = normalizeScheduleReflectionModelResponse({
+    assistantMessage: "Saved reflection.",
+    shouldSaveReflection: true,
+    summary: " Morning blocks worked, lunch transition failed. ",
+    contextSummary: " Schedule reflection saved ",
+    navigationHint: "calendar",
+    timeframeStart: " 2026-06-01 ",
+    timeframeEnd: null,
+    liked: [" Morning focus ", ""],
+    disliked: [" Too many afternoon blocks "],
+    obstacles: [" Lost momentum after lunch "],
+    strategySuggestions: [
+      {
+        title: " Add a post-lunch restart ritual ",
+        detail: "After lunch, open the task list and start with a 10-minute setup block.",
+        strength: "soft_preference",
+        confidence: "medium",
+        obstacle: " Lost momentum after lunch ",
+      },
+      {
+        title: "",
+        detail: "Bad",
+        strength: "soft_preference",
+        confidence: "medium",
+        obstacle: null,
+      },
+    ],
+  });
+
+  assert.equal(result.shouldSaveReflection, true);
+  assert.equal(result.summary, "Morning blocks worked, lunch transition failed.");
+  assert.equal(result.timeframeStart, "2026-06-01");
+  assert.equal(result.timeframeEnd, null);
+  assert.deepEqual(result.liked, ["Morning focus"]);
+  assert.deepEqual(result.disliked, ["Too many afternoon blocks"]);
+  assert.deepEqual(result.obstacles, ["Lost momentum after lunch"]);
+  assert.deepEqual(result.strategySuggestions, [
+    {
+      title: "Add a post-lunch restart ritual",
+      detail:
+        "After lunch, open the task list and start with a 10-minute setup block.",
+      strength: "soft_preference",
+      confidence: "medium",
+      obstacle: "Lost momentum after lunch",
+    },
+  ]);
 });
 
 test("normalizeWorkLogModelResponse handles absent progress updates and invalid ids", () => {

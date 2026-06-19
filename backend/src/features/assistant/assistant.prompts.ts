@@ -1,6 +1,8 @@
 import type {
   AssistantAction,
   AssistantModelResponse,
+  ScheduleReflectionModelResponse,
+  ScheduleReflectionStrategySuggestion,
   WorkLogModelResponse,
 } from "./assistant.types.ts";
 
@@ -71,6 +73,57 @@ export const WORK_LOG_SCHEMA = {
   },
 } as const satisfies Record<string, unknown>;
 
+export const SCHEDULE_REFLECTION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "assistantMessage",
+    "shouldSaveReflection",
+    "summary",
+    "contextSummary",
+    "navigationHint",
+    "timeframeStart",
+    "timeframeEnd",
+    "liked",
+    "disliked",
+    "obstacles",
+    "strategySuggestions",
+  ],
+  properties: {
+    assistantMessage: { type: "string" },
+    shouldSaveReflection: { type: "boolean" },
+    summary: { type: "string" },
+    contextSummary: { type: "string" },
+    navigationHint: nullableEnumSchema([
+      "chat",
+      "goals",
+      "tasks",
+      "metrics",
+      "calendar",
+    ]),
+    timeframeStart: nullableStringSchema(),
+    timeframeEnd: nullableStringSchema(),
+    liked: stringArraySchema(),
+    disliked: stringArraySchema(),
+    obstacles: stringArraySchema(),
+    strategySuggestions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "detail", "strength", "confidence", "obstacle"],
+        properties: {
+          title: { type: "string" },
+          detail: { type: "string" },
+          strength: nullableEnumSchema(["hard_constraint", "soft_preference"]),
+          confidence: nullableEnumSchema(["low", "medium", "high"]),
+          obstacle: nullableStringSchema(),
+        },
+      },
+    },
+  },
+} as const satisfies Record<string, unknown>;
+
 export function createAssistantTurnInstructions() {
   return [
     "You are Productiv's chat-first workspace assistant.",
@@ -116,6 +169,21 @@ export function createWorkLogInstructions() {
   ].join(" ");
 }
 
+export function createScheduleReflectionInstructions() {
+  return [
+    "You are Productiv's schedule reflection assistant.",
+    "The user is reflecting on a current or previous schedule after trying to follow it.",
+    "Your job is to capture what worked, what did not work, obstacles that interfered, and practical ICS-style strategies for the next schedule iteration.",
+    "ICS-style strategies should be concrete implementation intentions, friction reducers, environment changes, fallback plans, smaller blocks, buffers, or constraint/preference suggestions.",
+    "Do not turn every obstacle into a permanent constraint; suggest changes the user can accept, reject, or refine.",
+    "If the latest message lacks actual reflection details, set shouldSaveReflection to false and ask for what they liked, disliked, and what got in the way.",
+    "If the message includes usable reflection details, set shouldSaveReflection to true.",
+    "Keep strategySuggestions focused: usually one to three suggestions.",
+    "Do not invent dates. If the user names a timeframe, return ISO date strings when possible; otherwise return null for timeframeStart and timeframeEnd.",
+    "Return valid JSON that exactly matches the schema.",
+  ].join(" ");
+}
+
 export function buildAssistantTurnInput(input: {
   message: string;
   goals: unknown;
@@ -151,6 +219,40 @@ export function buildAssistantTurnInput(input: {
     "",
     "Pending schedule proposals that still need user confirmation:",
     JSON.stringify(input.pendingScheduleProposals, null, 2),
+  ].join("\n");
+}
+
+export function buildScheduleReflectionInput(input: {
+  message: string;
+  goals: unknown;
+  tasks: unknown;
+  metrics: unknown;
+  workLogs: unknown;
+  messages: unknown;
+  schedulingContext: unknown;
+}) {
+  return [
+    `Current timestamp: ${new Date().toISOString()}`,
+    "Latest schedule reflection message:",
+    input.message,
+    "",
+    "Recent conversation:",
+    JSON.stringify(input.messages, null, 2),
+    "",
+    "Current goals:",
+    JSON.stringify(input.goals, null, 2),
+    "",
+    "Current tasks and schedule-relevant state:",
+    JSON.stringify(input.tasks, null, 2),
+    "",
+    "Current metrics:",
+    JSON.stringify(input.metrics, null, 2),
+    "",
+    "Recent work logs:",
+    JSON.stringify(input.workLogs, null, 2),
+    "",
+    "Saved personal scheduling context:",
+    JSON.stringify(input.schedulingContext, null, 2),
   ].join("\n");
 }
 
@@ -219,6 +321,28 @@ export function normalizeWorkLogModelResponse(value: unknown): WorkLogModelRespo
             return [];
           }
         })
+      : [],
+  };
+}
+
+export function normalizeScheduleReflectionModelResponse(
+  value: unknown,
+): ScheduleReflectionModelResponse {
+  const record = asRecord(value);
+
+  return {
+    assistantMessage: getRequiredString(record.assistantMessage),
+    shouldSaveReflection: record.shouldSaveReflection === true,
+    summary: getNullableString(record.summary) ?? "",
+    contextSummary: getRequiredString(record.contextSummary),
+    navigationHint: getNavigationHint(record.navigationHint),
+    timeframeStart: getNullableString(record.timeframeStart),
+    timeframeEnd: getNullableString(record.timeframeEnd),
+    liked: getStringArray(record.liked),
+    disliked: getStringArray(record.disliked),
+    obstacles: getStringArray(record.obstacles),
+    strategySuggestions: Array.isArray(record.strategySuggestions)
+      ? record.strategySuggestions.flatMap(normalizeReflectionStrategySuggestion)
       : [],
   };
 }
@@ -402,6 +526,48 @@ function getRequiredNumber(value: unknown) {
   return value;
 }
 
+function getStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : [];
+}
+
+function normalizeReflectionStrategySuggestion(
+  value: unknown,
+): ScheduleReflectionStrategySuggestion[] {
+  try {
+    const record = asRecord(value);
+    const title = getRequiredString(record.title);
+    const detail = getRequiredString(record.detail);
+    const strength =
+      record.strength === "hard_constraint" ||
+      record.strength === "soft_preference"
+        ? record.strength
+        : "soft_preference";
+    const confidence =
+      record.confidence === "low" ||
+      record.confidence === "medium" ||
+      record.confidence === "high"
+        ? record.confidence
+        : "low";
+
+    return [
+      {
+        title,
+        detail,
+        strength,
+        confidence,
+        obstacle: getNullableString(record.obstacle),
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
 function getNullableNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -422,5 +588,14 @@ function nullableEnumSchema(values: string[]) {
   return {
     type: ["string", "null"],
     enum: [...values, null],
+  };
+}
+
+function stringArraySchema() {
+  return {
+    type: "array",
+    items: {
+      type: "string",
+    },
   };
 }

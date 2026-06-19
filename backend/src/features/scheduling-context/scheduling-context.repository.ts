@@ -5,6 +5,8 @@ import type {
   CompiledSchedulingContext,
   DerivedSchedulingSuggestionRecord,
   RuleConfidence,
+  ScheduleReflectionRecord,
+  ScheduleReflectionStrategySuggestion,
   SchedulingConflict,
   SchedulingDayOfWeek,
   SchedulingPreferenceRuleKind,
@@ -52,6 +54,18 @@ type SchedulingSuggestionRow = {
   metadata: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
+};
+
+type ScheduleReflectionRow = {
+  id: string;
+  timeframe_start: Date | string;
+  timeframe_end: Date | string;
+  user_narrative: string;
+  extracted_blockers: unknown;
+  effective_conditions: unknown;
+  recurring_preferences: unknown;
+  recommended_memory_updates: unknown;
+  created_at: Date;
 };
 
 const DEFAULT_WORK_DAY_START = "09:00";
@@ -257,6 +271,164 @@ export async function dismissDerivedSchedulingSuggestion(
     status: "dismissed",
     updated_at: new Date(),
   });
+}
+
+export async function createScheduleReflection(
+  input: {
+    userId: string;
+    timeframeStart: Date;
+    timeframeEnd: Date;
+    userNarrative: string;
+    extractedBlockers: string[];
+    effectiveConditions: string[];
+    recurringPreferences: string[];
+    recommendedMemoryUpdates: ScheduleReflectionStrategySuggestion[];
+  },
+  db: DatabaseExecutor = getSchedulingContextExecutor(),
+): Promise<ScheduleReflectionRecord> {
+  const result = await db.query<ScheduleReflectionRow>(
+    `
+      insert into schedule_reflections (
+        user_id,
+        timeframe_start,
+        timeframe_end,
+        user_narrative,
+        extracted_blockers,
+        effective_conditions,
+        recurring_preferences,
+        recommended_memory_updates
+      )
+      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb)
+      returning
+        id,
+        timeframe_start,
+        timeframe_end,
+        user_narrative,
+        extracted_blockers,
+        effective_conditions,
+        recurring_preferences,
+        recommended_memory_updates,
+        created_at
+    `,
+    [
+      input.userId,
+      input.timeframeStart,
+      input.timeframeEnd,
+      input.userNarrative,
+      JSON.stringify(input.extractedBlockers),
+      JSON.stringify(input.effectiveConditions),
+      JSON.stringify(input.recurringPreferences),
+      JSON.stringify(input.recommendedMemoryUpdates),
+    ],
+  );
+
+  return mapScheduleReflection(result.rows[0]);
+}
+
+export async function createDerivedSchedulingSuggestionsFromReflection(
+  input: {
+    userId: string;
+    reflectionId: string;
+    suggestions: ScheduleReflectionStrategySuggestion[];
+  },
+  db: DatabaseExecutor = getSchedulingContextExecutor(),
+): Promise<DerivedSchedulingSuggestionRecord[]> {
+  if (input.suggestions.length === 0) {
+    return [];
+  }
+
+  const existingRows = await listSchedulingSuggestionRows(
+    input.userId,
+    ["suggested", "active", "dismissed"],
+    db,
+  );
+  const existingKeys = new Set(
+    existingRows.map((row) => `${row.kind}:${row.title.toLowerCase()}`),
+  );
+  const createdSuggestions: DerivedSchedulingSuggestionRecord[] = [];
+
+  for (const suggestion of input.suggestions) {
+    const title = suggestion.title.trim();
+    const detail = suggestion.detail.trim();
+
+    if (!title || !detail) {
+      continue;
+    }
+
+    const key = `custom:${title.toLowerCase()}`;
+
+    if (existingKeys.has(key)) {
+      continue;
+    }
+
+    const result = await db.query<SchedulingSuggestionRow>(
+      `
+        insert into scheduling_preference_suggestions (
+          user_id,
+          kind,
+          title,
+          detail,
+          source,
+          strength,
+          status,
+          confidence,
+          context_patch,
+          metadata
+        )
+        values (
+          $1,
+          'custom',
+          $2,
+          $3,
+          'derived',
+          $4,
+          'suggested',
+          $5,
+          '{}'::jsonb,
+          $6::jsonb
+        )
+        returning
+          id,
+          user_id,
+          kind,
+          title,
+          detail,
+          source,
+          strength,
+          status,
+          confidence,
+          context_patch,
+          metadata,
+          created_at,
+          updated_at
+      `,
+      [
+        input.userId,
+        title,
+        detail,
+        suggestion.strength,
+        suggestion.confidence,
+        JSON.stringify({
+          origin: "schedule_reflection",
+          reflectionId: input.reflectionId,
+          obstacle: suggestion.obstacle ?? null,
+        }),
+      ],
+    );
+
+    const createdSuggestion = result.rows[0];
+
+    if (!createdSuggestion) {
+      continue;
+    }
+
+    createdSuggestions.push(
+      mapSchedulingSuggestion(createdSuggestion) as DerivedSchedulingSuggestionRecord,
+    );
+    existingKeys.add(key);
+  }
+
+  return createdSuggestions;
 }
 
 export function buildCompiledSchedulingContext(
@@ -637,6 +809,83 @@ function mapSchedulingSuggestion(
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
+}
+
+function mapScheduleReflection(row: ScheduleReflectionRow | undefined): ScheduleReflectionRecord {
+  if (!row) {
+    throw new Error("Expected schedule reflection row.");
+  }
+
+  return {
+    id: row.id,
+    timeframeStart: formatDateOnly(row.timeframe_start),
+    timeframeEnd: formatDateOnly(row.timeframe_end),
+    userNarrative: row.user_narrative,
+    extractedBlockers: getStringArray(row.extracted_blockers),
+    effectiveConditions: getStringArray(row.effective_conditions),
+    recurringPreferences: getStringArray(row.recurring_preferences),
+    recommendedMemoryUpdates: getReflectionStrategySuggestions(
+      row.recommended_memory_updates,
+    ),
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+function formatDateOnly(value: Date | string) {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : value;
+}
+
+function getStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : [];
+}
+
+function getReflectionStrategySuggestions(
+  value: unknown,
+): ScheduleReflectionStrategySuggestion[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          return [];
+        }
+
+        const record = item as Record<string, unknown>;
+        const title = typeof record.title === "string" ? record.title.trim() : "";
+        const detail = typeof record.detail === "string" ? record.detail.trim() : "";
+        const strength =
+          record.strength === "hard_constraint" ||
+          record.strength === "soft_preference"
+            ? record.strength
+            : "soft_preference";
+        const confidence =
+          record.confidence === "low" ||
+          record.confidence === "medium" ||
+          record.confidence === "high"
+            ? record.confidence
+            : "low";
+
+        if (!title || !detail) {
+          return [];
+        }
+
+        return [
+          {
+            title,
+            detail,
+            strength,
+            confidence,
+            obstacle:
+              typeof record.obstacle === "string" && record.obstacle.trim()
+                ? record.obstacle.trim()
+                : null,
+          },
+        ];
+      })
+    : [];
 }
 
 function buildSyntheticUserRules(input: {
