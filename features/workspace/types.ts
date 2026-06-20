@@ -2,11 +2,25 @@ export type GoalStatus = "active" | "paused" | "completed" | "archived";
 export type TaskStatus = "inbox" | "planned" | "scheduled" | "done" | "canceled";
 export type ScheduleIntent = "unscheduled" | "schedule_now" | "someday";
 export type MetricProgressSource = "assistant_extract" | "manual";
+export type GoalFocusAreaStatus = "active" | "paused" | "completed";
+
+export type GoalFocusArea = {
+  id: string;
+  title: string;
+  description: string;
+  status: GoalFocusAreaStatus;
+  defaultDurationMinutes: number | null;
+  cadence: string | null;
+};
 
 export type Goal = {
   id: string;
   title: string;
   definition: string;
+  successCriteria: string[];
+  focusAreas: GoalFocusArea[];
+  scheduleGuidance: Record<string, unknown>;
+  constraints: string[];
   notes: string | null;
   priorityRank: number;
   status: GoalStatus;

@@ -12,6 +12,7 @@ import {
   patchTask,
 } from "./workspace.repository.ts";
 import type {
+  GoalFocusArea,
   GoalRecord,
   GoalStatus,
   ScheduleIntent,
@@ -33,6 +34,10 @@ type MetricParams = {
 type PatchGoalBody = {
   title?: string;
   definition?: string;
+  successCriteria?: unknown;
+  focusAreas?: unknown;
+  scheduleGuidance?: unknown;
+  constraints?: unknown;
   notes?: string | null;
   priorityRank?: number;
   status?: GoalStatus;
@@ -96,6 +101,10 @@ export async function updateGoal(
       goalId: req.params.goalId,
       title: getOptionalTrimmedString(req.body.title),
       definition: getOptionalTrimmedString(req.body.definition),
+      successCriteria: getOptionalStringArray(req.body.successCriteria),
+      focusAreas: getOptionalGoalFocusAreas(req.body.focusAreas),
+      scheduleGuidance: getOptionalRecord(req.body.scheduleGuidance),
+      constraints: getOptionalStringArray(req.body.constraints),
       notes: getOptionalNullableTrimmedString(req.body.notes),
       priorityRank: getOptionalNumber(req.body.priorityRank),
       status: getOptionalGoalStatus(req.body.status),
@@ -288,6 +297,88 @@ function getOptionalNullableTrimmedString(value: unknown) {
   }
 
   return getOptionalTrimmedString(value);
+}
+
+function getOptionalStringArray(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function getOptionalRecord(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function getOptionalGoalFocusAreas(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.flatMap((item): GoalFocusArea[] => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+
+    const record = item as Record<string, unknown>;
+    const title = getOptionalTrimmedString(record.title);
+
+    if (!title) {
+      return [];
+    }
+
+    const id = getOptionalTrimmedString(record.id) ?? createStableFocusId(title);
+    const status =
+      record.status === "paused" || record.status === "completed"
+        ? record.status
+        : "active";
+    const defaultDurationMinutes =
+      typeof record.defaultDurationMinutes === "number" &&
+      Number.isFinite(record.defaultDurationMinutes) &&
+      record.defaultDurationMinutes > 0
+        ? Math.round(record.defaultDurationMinutes)
+        : null;
+
+    return [
+      {
+        id,
+        title,
+        description: getOptionalTrimmedString(record.description) ?? "",
+        status,
+        defaultDurationMinutes,
+        cadence: getOptionalTrimmedString(record.cadence) ?? null,
+      },
+    ];
+  });
+}
+
+function createStableFocusId(title: string) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
 }
 
 function getOptionalNumber(value: unknown) {

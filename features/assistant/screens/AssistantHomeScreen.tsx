@@ -808,7 +808,7 @@ function ScheduleProposalCard({
       >
         {proposal.operations.map((operation, index) => (
           <View
-            key={`${proposal.id}-${operation.taskId}-${operation.startTime}-${index}`}
+            key={getProposalOperationKey(proposal.id, operation, index)}
             style={{
               borderRadius: 14,
               backgroundColor: "#fffaf2",
@@ -824,6 +824,10 @@ function ScheduleProposalCard({
             >
               {operation.title}
             </Text>
+            <ProposalDetailRow
+              label="Type"
+              value={operation.type === "schedule_task" ? "Task" : "Goal focus"}
+            />
             {operation.description ? (
               <Text
                 style={{
@@ -1094,7 +1098,7 @@ function normalizeProposalStatus(value: string): ScheduleProposal["status"] {
 
 function normalizeProposalOperations(value: unknown): ScheduleProposal["operations"] {
   return Array.isArray(value)
-    ? value.flatMap((item) => {
+    ? value.flatMap((item): ScheduleProposal["operations"] => {
         if (!item || typeof item !== "object" || Array.isArray(item)) {
           return [];
         }
@@ -1102,28 +1106,63 @@ function normalizeProposalOperations(value: unknown): ScheduleProposal["operatio
         const record = item as Record<string, unknown>;
 
         if (
-          record.type !== "schedule_task" ||
-          typeof record.taskId !== "string" ||
-          typeof record.title !== "string" ||
-          typeof record.description !== "string" ||
-          typeof record.startTime !== "string" ||
-          typeof record.endTime !== "string"
+          record.type === "schedule_task" &&
+          typeof record.taskId === "string" &&
+          typeof record.title === "string" &&
+          typeof record.description === "string" &&
+          typeof record.startTime === "string" &&
+          typeof record.endTime === "string"
         ) {
-          return [];
+          return [
+            {
+              type: "schedule_task" as const,
+              taskId: record.taskId,
+              title: record.title,
+              description: record.description,
+              startTime: record.startTime,
+              endTime: record.endTime,
+            },
+          ];
         }
 
-        return [
-          {
-            type: "schedule_task" as const,
-            taskId: record.taskId,
-            title: record.title,
-            description: record.description,
-            startTime: record.startTime,
-            endTime: record.endTime,
-          },
-        ];
+        if (
+          record.type === "schedule_goal_focus" &&
+          typeof record.goalId === "string" &&
+          (typeof record.focusId === "string" || record.focusId === null) &&
+          typeof record.title === "string" &&
+          typeof record.description === "string" &&
+          typeof record.startTime === "string" &&
+          typeof record.endTime === "string"
+        ) {
+          return [
+            {
+              type: "schedule_goal_focus" as const,
+              goalId: record.goalId,
+              focusId: record.focusId,
+              title: record.title,
+              description: record.description,
+              startTime: record.startTime,
+              endTime: record.endTime,
+            },
+          ];
+        }
+
+        return [];
       })
     : [];
+}
+
+function getProposalOperationKey(
+  proposalId: string,
+  operation: ScheduleProposal["operations"][number],
+  index: number,
+) {
+  const recordId =
+    operation.type === "schedule_task"
+      ? operation.taskId
+      : `${operation.goalId}-${operation.focusId ?? "goal"}`;
+
+  return `${proposalId}-${recordId}-${operation.startTime}-${index}`;
 }
 
 function normalizeProposalConflicts(

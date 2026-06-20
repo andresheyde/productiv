@@ -4,6 +4,7 @@ import { getRuntimePool } from "../../shared/db/postgres.ts";
 import type {
   AssistantMessageRecord,
   AssistantThreadRecord,
+  GoalFocusArea,
   GoalMetricRecord,
   GoalRecord,
   MetricProgressEntryRecord,
@@ -25,6 +26,10 @@ type GoalRow = {
   id: string;
   title: string;
   definition: string;
+  success_criteria: unknown;
+  habit_focus: unknown;
+  schedule_guidance: unknown;
+  constraints: unknown;
   notes: string | null;
   priority_rank: number;
   status: GoalRecord["status"];
@@ -268,6 +273,10 @@ export async function listGoals(
         id,
         title,
         definition,
+        success_criteria,
+        habit_focus,
+        schedule_guidance,
+        constraints,
         notes,
         priority_rank,
         status,
@@ -403,6 +412,10 @@ export async function getGoalById(
         id,
         title,
         definition,
+        success_criteria,
+        habit_focus,
+        schedule_guidance,
+        constraints,
         notes,
         priority_rank,
         status,
@@ -486,6 +499,10 @@ export async function createGoal(
     userId: string;
     title: string;
     definition?: string | undefined;
+    successCriteria?: string[] | undefined;
+    focusAreas?: GoalFocusArea[] | undefined;
+    scheduleGuidance?: Record<string, unknown> | undefined;
+    constraints?: string[] | undefined;
     notes?: string | null | undefined;
     priorityRank?: number | undefined;
     status?: GoalRecord["status"] | undefined;
@@ -498,15 +515,23 @@ export async function createGoal(
         user_id,
         title,
         definition,
+        success_criteria,
+        habit_focus,
+        schedule_guidance,
+        constraints,
         notes,
         priority_rank,
         status
       )
-      values ($1, $2, $3, $4, $5, $6)
+      values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10)
       returning
         id,
         title,
         definition,
+        success_criteria,
+        habit_focus,
+        schedule_guidance,
+        constraints,
         notes,
         priority_rank,
         status,
@@ -517,6 +542,10 @@ export async function createGoal(
       input.userId,
       input.title,
       input.definition ?? "",
+      JSON.stringify(input.successCriteria ?? []),
+      JSON.stringify(input.focusAreas ?? []),
+      JSON.stringify(input.scheduleGuidance ?? {}),
+      JSON.stringify(input.constraints ?? []),
       input.notes ?? null,
       input.priorityRank ?? 100,
       input.status ?? "active",
@@ -532,6 +561,10 @@ export async function patchGoal(
     goalId: string;
     title?: string | undefined;
     definition?: string | undefined;
+    successCriteria?: string[] | undefined;
+    focusAreas?: GoalFocusArea[] | undefined;
+    scheduleGuidance?: Record<string, unknown> | undefined;
+    constraints?: string[] | undefined;
     notes?: string | null | undefined;
     priorityRank?: number | undefined;
     status?: GoalRecord["status"] | undefined;
@@ -547,6 +580,22 @@ export async function patchGoal(
       setFields: {
         title: input.title,
         definition: input.definition,
+        success_criteria:
+          input.successCriteria === undefined
+            ? undefined
+            : JSON.stringify(input.successCriteria),
+        habit_focus:
+          input.focusAreas === undefined
+            ? undefined
+            : JSON.stringify(input.focusAreas),
+        schedule_guidance:
+          input.scheduleGuidance === undefined
+            ? undefined
+            : JSON.stringify(input.scheduleGuidance),
+        constraints:
+          input.constraints === undefined
+            ? undefined
+            : JSON.stringify(input.constraints),
         notes: input.notes,
         priority_rank: input.priorityRank,
         status: input.status,
@@ -555,6 +604,10 @@ export async function patchGoal(
         id,
         title,
         definition,
+        success_criteria,
+        habit_focus,
+        schedule_guidance,
+        constraints,
         notes,
         priority_rank,
         status,
@@ -953,12 +1006,94 @@ function mapGoal(row: GoalRow | undefined): GoalRecord {
     id: row.id,
     title: row.title,
     definition: row.definition,
+    successCriteria: normalizeStringArray(row.success_criteria),
+    focusAreas: normalizeGoalFocusAreas(row.habit_focus),
+    scheduleGuidance: normalizeJsonRecord(row.schedule_guidance),
+    constraints: normalizeStringArray(row.constraints),
     notes: row.notes,
     priorityRank: row.priority_rank,
     status: row.status,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
+}
+
+function normalizeGoalFocusAreas(value: unknown): GoalFocusArea[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+
+    const record = item as Record<string, unknown>;
+    const title = normalizeString(record.title);
+
+    if (!title) {
+      return [];
+    }
+
+    const status =
+      record.status === "paused" || record.status === "completed"
+        ? record.status
+        : "active";
+    const defaultDurationMinutes =
+      typeof record.defaultDurationMinutes === "number" &&
+      Number.isFinite(record.defaultDurationMinutes) &&
+      record.defaultDurationMinutes > 0
+        ? Math.round(record.defaultDurationMinutes)
+        : null;
+
+    return [
+      {
+        id: normalizeString(record.id) ?? createStableFocusId(title),
+        title,
+        description: normalizeString(record.description) ?? "",
+        status,
+        defaultDurationMinutes,
+        cadence: normalizeString(record.cadence),
+      },
+    ];
+  });
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function normalizeJsonRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function normalizeString(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function createStableFocusId(title: string) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
 }
 
 function mapTask(row: TaskRow | undefined): TaskRecord {

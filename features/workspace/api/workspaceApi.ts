@@ -1,6 +1,7 @@
 import { apiRequest } from "@/features/shared/api/request";
 import type {
   Goal,
+  GoalFocusArea,
   GoalMetric,
   MetricProgressEntry,
   ScheduleIntent,
@@ -19,6 +20,10 @@ export async function updateGoal(
     goalId: string;
     title?: string;
     definition?: string;
+    successCriteria?: string[];
+    focusAreas?: GoalFocusArea[];
+    scheduleGuidance?: Record<string, unknown>;
+    constraints?: string[];
     notes?: string | null;
     priorityRank?: number;
     status?: Goal["status"];
@@ -34,6 +39,10 @@ export async function updateGoal(
     body: JSON.stringify({
       title: input.title,
       definition: input.definition,
+      successCriteria: input.successCriteria,
+      focusAreas: input.focusAreas,
+      scheduleGuidance: input.scheduleGuidance,
+      constraints: input.constraints,
       notes: input.notes,
       priorityRank: input.priorityRank,
       status: input.status,

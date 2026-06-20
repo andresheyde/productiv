@@ -97,10 +97,6 @@ export async function runPlanningTurn(
 }
 
 function buildMissingPlanRequirementsMessage(missingRequirements: string[]) {
-  if (missingRequirements.length === 0) {
-    return "I need one more concrete detail before I can create this goal. What should we track first?";
-  }
-
   return `I need one more concrete detail before I can create this goal: ${missingRequirements.join(
     " and ",
   )}.`;

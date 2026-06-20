@@ -27,7 +27,7 @@ type ScheduleProposalRow = {
   updated_at: Date;
 };
 
-export type ScheduleProposalOperation = {
+export type ScheduleTaskProposalOperation = {
   type: "schedule_task";
   taskId: string;
   title: string;
@@ -35,6 +35,20 @@ export type ScheduleProposalOperation = {
   startTime: string;
   endTime: string;
 };
+
+export type ScheduleGoalFocusProposalOperation = {
+  type: "schedule_goal_focus";
+  goalId: string;
+  focusId: string | null;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+};
+
+export type ScheduleProposalOperation =
+  | ScheduleTaskProposalOperation
+  | ScheduleGoalFocusProposalOperation;
 
 export type ScheduleProposalRecord = {
   id: string;
@@ -282,26 +296,48 @@ function normalizeScheduleProposalOperation(value: unknown): ScheduleProposalOpe
   const record = value as Record<string, unknown>;
 
   if (
-    record.type !== "schedule_task" ||
-    typeof record.taskId !== "string" ||
-    typeof record.title !== "string" ||
-    typeof record.description !== "string" ||
-    typeof record.startTime !== "string" ||
-    typeof record.endTime !== "string"
+    record.type === "schedule_task" &&
+    typeof record.taskId === "string" &&
+    typeof record.title === "string" &&
+    typeof record.description === "string" &&
+    typeof record.startTime === "string" &&
+    typeof record.endTime === "string"
   ) {
-    return [];
+    return [
+      {
+        type: "schedule_task",
+        taskId: record.taskId,
+        title: record.title,
+        description: record.description,
+        startTime: record.startTime,
+        endTime: record.endTime,
+      },
+    ];
   }
 
-  return [
-    {
-      type: "schedule_task",
-      taskId: record.taskId,
-      title: record.title,
-      description: record.description,
-      startTime: record.startTime,
-      endTime: record.endTime,
-    },
-  ];
+  if (
+    record.type === "schedule_goal_focus" &&
+    typeof record.goalId === "string" &&
+    (typeof record.focusId === "string" || record.focusId === null) &&
+    typeof record.title === "string" &&
+    typeof record.description === "string" &&
+    typeof record.startTime === "string" &&
+    typeof record.endTime === "string"
+  ) {
+    return [
+      {
+        type: "schedule_goal_focus",
+        goalId: record.goalId,
+        focusId: record.focusId,
+        title: record.title,
+        description: record.description,
+        startTime: record.startTime,
+        endTime: record.endTime,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function normalizeSchedulingConflict(value: unknown): SchedulingConflict[] {

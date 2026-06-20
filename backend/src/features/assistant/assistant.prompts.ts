@@ -131,10 +131,13 @@ export function createAssistantTurnInstructions() {
     "Identify the user's intent first: create or refine a goal, add a task, log work, schedule work, update progress, or answer a workspace question.",
     "Ask only for the minimum missing information required to complete the user's intended action.",
     "For goal creation, gather a concrete outcome and at least one milestone, task, or tracking target; do not require barrier analysis before creating the first trackable version.",
+    "Do not auto-create tasks from goals. Goals may have focus areas/current work; tasks are explicit user-defined to-dos that can be completed in one session.",
     "For task creation, gather or infer the task title, due date or urgency when relevant, estimated duration when scheduling is requested, and the linked goal if it is clear.",
-    "For scheduling, gather the task, duration, target day or window, and any hard constraints needed to generate a proposal.",
+    "For scheduling, decide whether the user is scheduling a task/to-do or a goal focus block. Goal work should use goal-focus scheduling instead of creating a task.",
+    "For goal-focus scheduling, gather the goal, focus/current work when available, duration, target day or window, and any hard constraints needed to generate a proposal.",
     "Treat barriers as later reflection data that can be collected after the user attempts to follow a plan or schedule.",
     "Only create or update goals, tasks, metrics, or scheduling when the user clearly asks for it or the intent is explicit.",
+    "Only create_task when the user explicitly asks to add a task, to-do, reminder, or clearly describes a one-session deliverable they want saved as a task.",
     "When enough information exists for an action, return the corresponding action instead of asking another planning-style question.",
     "Respect scheduling precedence in this order: explicit current user instruction, saved hard constraints, goal or task constraints, saved soft preferences, system scheduling guidance, then assistant heuristics.",
     "Never let generic best-practice scheduling guidance silently overrule a saved user preference.",
@@ -143,6 +146,8 @@ export function createAssistantTurnInstructions() {
     "Do not invent numbers, dates, or schedule times.",
     "Use schedule_task only when the latest user message explicitly chooses the exact calendar slot.",
     "When the user wants help scheduling but has not explicitly chosen the exact slot, use propose_schedule_task instead of schedule_task.",
+    "Use schedule_goal_focus only when the latest user message explicitly chooses the exact calendar slot for ongoing goal work.",
+    "When the user wants help scheduling goal work but has not explicitly chosen the exact slot, use propose_schedule_goal_focus instead of propose_schedule_task.",
     "Use confirm_schedule_proposal only when the user is explicitly approving a pending schedule proposal.",
     "Use dismiss_schedule_proposal only when the user is explicitly rejecting a pending schedule proposal.",
     "If the user explicitly asks for a slot that conflicts with their saved preferences, keep the user's decision and mention the conflict in assistantMessage.",
@@ -355,10 +360,15 @@ function assistantActionSchema() {
       "type",
       "proposalId",
       "goalId",
+      "focusId",
       "taskId",
       "metricId",
       "title",
       "definition",
+      "successCriteria",
+      "focusAreas",
+      "scheduleGuidance",
+      "constraints",
       "notes",
       "description",
       "unitLabel",
@@ -385,16 +395,23 @@ function assistantActionSchema() {
           "update_metric",
           "schedule_task",
           "propose_schedule_task",
+          "schedule_goal_focus",
+          "propose_schedule_goal_focus",
           "confirm_schedule_proposal",
           "dismiss_schedule_proposal",
         ],
       },
       proposalId: nullableStringSchema(),
       goalId: nullableStringSchema(),
+      focusId: nullableStringSchema(),
       taskId: nullableStringSchema(),
       metricId: nullableStringSchema(),
       title: nullableStringSchema(),
       definition: nullableStringSchema(),
+      successCriteria: stringArraySchema(),
+      focusAreas: goalFocusAreaArraySchema(),
+      scheduleGuidance: nullableScheduleGuidanceSchema(),
+      constraints: stringArraySchema(),
       notes: nullableStringSchema(),
       description: nullableStringSchema(),
       unitLabel: nullableStringSchema(),
@@ -436,10 +453,15 @@ function normalizeAction(value: unknown): AssistantAction | null {
       type: getRequiredActionType(record.type),
       proposalId: getNullableString(record.proposalId),
       goalId: getNullableString(record.goalId),
+      focusId: getNullableString(record.focusId),
       taskId: getNullableString(record.taskId),
       metricId: getNullableString(record.metricId),
       title: getNullableString(record.title),
       definition: getNullableString(record.definition),
+      successCriteria: getStringArray(record.successCriteria),
+      focusAreas: getGoalFocusAreas(record.focusAreas),
+      scheduleGuidance: getNullableRecord(record.scheduleGuidance),
+      constraints: getStringArray(record.constraints),
       notes: getNullableString(record.notes),
       description: getNullableString(record.description),
       unitLabel: getNullableString(record.unitLabel),
@@ -470,6 +492,8 @@ function getRequiredActionType(value: unknown): AssistantAction["type"] {
     value === "update_metric" ||
     value === "schedule_task" ||
     value === "propose_schedule_task" ||
+    value === "schedule_goal_focus" ||
+    value === "propose_schedule_goal_focus" ||
     value === "confirm_schedule_proposal" ||
     value === "dismiss_schedule_proposal"
   ) {
@@ -535,6 +559,58 @@ function getStringArray(value: unknown): string[] {
     : [];
 }
 
+function getGoalFocusAreas(value: unknown): AssistantAction["focusAreas"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+
+    const record = item as Record<string, unknown>;
+    const title = getNullableString(record.title);
+
+    if (!title) {
+      return [];
+    }
+
+    const defaultDurationMinutes =
+      typeof record.defaultDurationMinutes === "number" &&
+      Number.isFinite(record.defaultDurationMinutes) &&
+      record.defaultDurationMinutes > 0
+        ? Math.round(record.defaultDurationMinutes)
+        : null;
+
+    return [
+      {
+        id: getNullableString(record.id) ?? createStableFocusId(title),
+        title,
+        description: getNullableString(record.description) ?? "",
+        status:
+          record.status === "paused" || record.status === "completed"
+            ? record.status
+            : "active",
+        defaultDurationMinutes,
+        cadence: getNullableString(record.cadence),
+      },
+    ];
+  });
+}
+
+function getNullableRecord(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
 function normalizeReflectionStrategySuggestion(
   value: unknown,
 ): ScheduleReflectionStrategySuggestion[] {
@@ -591,6 +667,27 @@ function nullableEnumSchema(values: string[]) {
   };
 }
 
+function nullableScheduleGuidanceSchema() {
+  return {
+    type: ["object", "null"],
+    additionalProperties: false,
+    required: [
+      "timeAvailability",
+      "timeProtectionPlan",
+      "limitingHabits",
+      "scriptedActions",
+      "environmentalOptimizations",
+    ],
+    properties: {
+      timeAvailability: nullableStringSchema(),
+      timeProtectionPlan: stringArraySchema(),
+      limitingHabits: stringArraySchema(),
+      scriptedActions: stringArraySchema(),
+      environmentalOptimizations: stringArraySchema(),
+    },
+  };
+}
+
 function stringArraySchema() {
   return {
     type: "array",
@@ -598,4 +695,39 @@ function stringArraySchema() {
       type: "string",
     },
   };
+}
+
+function goalFocusAreaArraySchema() {
+  return {
+    type: "array",
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "id",
+        "title",
+        "description",
+        "status",
+        "defaultDurationMinutes",
+        "cadence",
+      ],
+      properties: {
+        id: nullableStringSchema(),
+        title: { type: "string" },
+        description: nullableStringSchema(),
+        status: nullableEnumSchema(["active", "paused", "completed"]),
+        defaultDurationMinutes: nullableNumberSchema(),
+        cadence: nullableStringSchema(),
+      },
+    },
+  };
+}
+
+function createStableFocusId(title: string) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
 }

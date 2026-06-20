@@ -42,6 +42,7 @@ import {
 } from "@/features/workspace/api/workspaceApi";
 import type {
   Goal,
+  GoalFocusArea,
   GoalMetric,
   MetricProgressEntry,
   Task,
@@ -75,6 +76,10 @@ type WorkspaceContextValue = {
   updateGoal: (input: {
     goalId: string;
     definition?: string;
+    successCriteria?: string[];
+    focusAreas?: GoalFocusArea[];
+    scheduleGuidance?: Record<string, unknown>;
+    constraints?: string[];
     notes?: string | null;
     priorityRank?: number;
     status?: Goal["status"];
@@ -195,7 +200,10 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       const optimisticMessage: AssistantMessage = {
         id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         role: "user",
-        intent: input.mode === "work_log" ? "work_log" : "chat",
+        intent:
+          input.mode === "work_log" || input.mode === "schedule_reflection"
+            ? input.mode
+            : "chat",
         content: input.message,
         structuredPayload: {},
         createdAt: new Date().toISOString(),
@@ -258,6 +266,10 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
     async (input: {
       goalId: string;
       definition?: string;
+      successCriteria?: string[];
+      focusAreas?: GoalFocusArea[];
+      scheduleGuidance?: Record<string, unknown>;
+      constraints?: string[];
       notes?: string | null;
       priorityRank?: number;
       status?: Goal["status"];

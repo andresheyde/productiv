@@ -49,8 +49,8 @@ export default function TasksScreen() {
   if (!isAuthenticated) {
     return (
       <WorkspaceAuthGate
-        title="Tasks fill in from chat"
-        description="As you define work in the chat screen, Productiv collects tasks here with due dates, scheduling state, and lightweight editing controls."
+        title="Tasks are explicit to-dos"
+        description="Tell Productiv when you want to save a concrete task, reminder, or one-session deliverable, then manage its due date and scheduling state here."
       />
     );
   }
@@ -112,8 +112,8 @@ export default function TasksScreen() {
               lineHeight: 20,
             }}
           >
-            This is the execution layer: what exists, when it is due, and
-            whether Productiv has already placed it on the schedule.
+            Specific to-dos, reminders, and one-session deliverables live here
+            when you ask Productiv to save them.
           </Text>
         </View>
 
@@ -147,8 +147,8 @@ export default function TasksScreen() {
                 lineHeight: 22,
               }}
             >
-              Ask Productiv to break a goal into tasks or tell it to add a
-              specific task for you.
+              Ask Productiv to add a specific task, reminder, or one-session
+              deliverable when you want it tracked as a to-do.
             </Text>
           </View>
         ) : null}

@@ -50,7 +50,7 @@ export type AssistantSideEffect = {
   metricEntries: MetricProgressEntry[];
 };
 
-export type ScheduleProposalOperation = {
+export type ScheduleTaskProposalOperation = {
   type: "schedule_task";
   taskId: string;
   title: string;
@@ -58,6 +58,20 @@ export type ScheduleProposalOperation = {
   startTime: string;
   endTime: string;
 };
+
+export type ScheduleGoalFocusProposalOperation = {
+  type: "schedule_goal_focus";
+  goalId: string;
+  focusId: string | null;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+};
+
+export type ScheduleProposalOperation =
+  | ScheduleTaskProposalOperation
+  | ScheduleGoalFocusProposalOperation;
 
 export type ScheduleProposal = {
   id: string;

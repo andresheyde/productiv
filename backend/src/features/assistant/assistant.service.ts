@@ -8,7 +8,10 @@ import {
 } from "../calendar/calendar.service.ts";
 import type { AuthenticatedUser } from "../auth/auth.types.ts";
 import { runPlanningTurn } from "../planning/planning.service.ts";
-import type { PlanningChatMessage } from "../planning/planning.types.ts";
+import type {
+  GeneratedPlan,
+  PlanningChatMessage,
+} from "../planning/planning.types.ts";
 import {
   buildCompiledSchedulingContext,
   createDerivedSchedulingSuggestionsFromReflection,
@@ -71,6 +74,7 @@ import {
 } from "../workspace/workspace.repository.ts";
 import type {
   AssistantMessageRecord,
+  GoalFocusArea,
   GoalMetricRecord,
   GoalRecord,
   TaskRecord,
@@ -81,6 +85,31 @@ type PlanningArtifact = {
   planningDraftState?: unknown;
   planningGoalId?: string;
 };
+
+type ScheduleTaskActionDetails = {
+  kind: "task";
+  task: TaskRecord;
+  title: string;
+  description: string;
+  startTime: Date;
+  endTime: Date;
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_task" }>;
+};
+
+type ScheduleGoalFocusActionDetails = {
+  kind: "goal_focus";
+  goal: GoalRecord;
+  focusArea: GoalFocusArea | null;
+  title: string;
+  description: string;
+  startTime: Date;
+  endTime: Date;
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_goal_focus" }>;
+};
+
+type ScheduleActionDetails =
+  | ScheduleTaskActionDetails
+  | ScheduleGoalFocusActionDetails;
 
 export async function getAssistantThreadForUser(
   userId: string,
@@ -362,6 +391,10 @@ async function handlePlanningTurn(input: {
           userId: input.userId,
           title: result.generatedPlan.mediumTermGoal,
           definition: result.generatedPlan.summary,
+          successCriteria: result.generatedPlan.thirtyDayPerformanceGoals,
+          focusAreas: buildGoalFocusAreasFromPlan(result.generatedPlan),
+          scheduleGuidance: buildScheduleGuidanceFromPlan(result.generatedPlan),
+          constraints: result.generatedPlan.constraints,
           notes: [
             `Direction: ${result.generatedPlan.direction}`,
             `Time availability: ${result.generatedPlan.timeAvailability}`,
@@ -378,38 +411,8 @@ async function handlePlanningTurn(input: {
       );
       sideEffects.goals.push(goal);
 
-      const plannedTasks = [
-        ...result.generatedPlan.fourteenDayPerformanceGoals.map((title) => ({
-          title,
-          dueAt: addDaysIso(14),
-          priorityRank: 20,
-        })),
-        ...result.generatedPlan.thirtyDayPerformanceGoals.map((title) => ({
-          title,
-          dueAt: addDaysIso(30),
-          priorityRank: 30,
-        })),
-      ];
-
-      for (const nextTask of plannedTasks) {
-        const createdTask = await createTask(
-          {
-            userId: input.userId,
-            goalId: goal.id,
-            title: nextTask.title,
-            description: result.generatedPlan.summary,
-            status: "planned",
-            dueAt: new Date(nextTask.dueAt),
-            priorityRank: nextTask.priorityRank,
-            scheduleIntent: "schedule_now",
-          },
-          client,
-        );
-        sideEffects.tasks.push(createdTask);
-      }
-
       const assistantMessage =
-        `${result.assistantMessage}\n\nI turned that into your first goal and starting task list.`;
+        `${result.assistantMessage}\n\nI turned that into your first goal and initial focus plan.`;
 
       await appendAssistantMessage(
         {
@@ -740,6 +743,10 @@ async function applyAssistantAction(
           userId: input.userId,
           title: input.action.title,
           definition: input.action.definition ?? "",
+          successCriteria: input.action.successCriteria,
+          focusAreas: input.action.focusAreas,
+          scheduleGuidance: input.action.scheduleGuidance ?? undefined,
+          constraints: input.action.constraints,
           notes: input.action.notes,
           priorityRank: toIntegerOrUndefined(input.action.priorityRank),
           status: isGoalStatus(input.action.status) ? input.action.status : "active",
@@ -761,6 +768,19 @@ async function applyAssistantAction(
           goalId: input.action.goalId,
           title: input.action.title ?? undefined,
           definition: input.action.definition ?? undefined,
+          successCriteria:
+            input.action.successCriteria.length > 0
+              ? input.action.successCriteria
+              : undefined,
+          focusAreas:
+            input.action.focusAreas.length > 0
+              ? input.action.focusAreas
+              : undefined,
+          scheduleGuidance: input.action.scheduleGuidance ?? undefined,
+          constraints:
+            input.action.constraints.length > 0
+              ? input.action.constraints
+              : undefined,
           notes: input.action.notes ?? undefined,
           priorityRank: toIntegerOrUndefined(input.action.priorityRank),
           status: isGoalStatus(input.action.status)
@@ -907,6 +927,22 @@ async function applyAssistantAction(
       await createProposalFromSchedulingAction(input, db);
       return;
     }
+    case "schedule_goal_focus": {
+      if (!userMessageSpecifiesExactSlot(input.currentMessage)) {
+        await createProposalFromSchedulingAction(input, db, {
+          reason:
+            "I saved that as a proposal instead of placing it directly because you did not explicitly choose the exact slot yet.",
+        });
+        return;
+      }
+
+      await applyDirectScheduleAction(input, db);
+      return;
+    }
+    case "propose_schedule_goal_focus": {
+      await createProposalFromSchedulingAction(input, db);
+      return;
+    }
     case "confirm_schedule_proposal": {
       await confirmScheduleProposalAction(input, db);
       return;
@@ -938,7 +974,7 @@ async function createProposalFromSchedulingAction(
   const scheduleDetails = await resolveScheduleActionDetails(input, db);
 
   if (!scheduleDetails) {
-    input.warnings.push("I couldn't save that scheduling proposal because the task or time window was incomplete.");
+    input.warnings.push("I couldn't save that scheduling proposal because the work item or time window was incomplete.");
     return;
   }
 
@@ -983,7 +1019,7 @@ async function applyDirectScheduleAction(
   const scheduleDetails = await resolveScheduleActionDetails(input, db);
 
   if (!scheduleDetails) {
-    input.warnings.push("I skipped that schedule request because the task or time window was incomplete.");
+    input.warnings.push("I skipped that schedule request because the work item or time window was incomplete.");
     return;
   }
 
@@ -992,21 +1028,22 @@ async function applyDirectScheduleAction(
     scheduleDetails.startTime,
     scheduleDetails.endTime,
   );
-  const updatedTask = await applyScheduleOperationToCalendar(
+  const applied = await applyScheduleDetailsToCalendar(
     input.userId,
     input.tokens,
-    scheduleDetails.task,
-    scheduleDetails.operation,
+    scheduleDetails,
     db,
   );
 
-  if (!updatedTask) {
+  if (!applied) {
     input.warnings.push("I couldn't place that event on the calendar, so nothing was scheduled.");
     return;
   }
 
-  input.tasksById.set(updatedTask.id, updatedTask);
-  input.sideEffects.tasks.push(updatedTask);
+  if (applied.type === "task") {
+    input.tasksById.set(applied.task.id, applied.task);
+    input.sideEffects.tasks.push(applied.task);
+  }
 
   if (conflicts.length > 0) {
     input.warnings.push(
@@ -1020,6 +1057,7 @@ async function confirmScheduleProposalAction(
     userId: string;
     tokens: Credentials;
     action: AssistantAction;
+    goalsById: Map<string, GoalRecord>;
     tasksById: Map<string, TaskRecord>;
     pendingProposalsById: Map<string, ScheduleProposalRecord>;
     userSchedulingContext: UserSchedulingContextRecord;
@@ -1042,41 +1080,38 @@ async function confirmScheduleProposalAction(
     return;
   }
 
-  const task = input.tasksById.get(operation.taskId);
+  const scheduleDetails = resolveScheduleDetailsFromProposalOperation(
+    operation,
+    input.goalsById,
+    input.tasksById,
+  );
 
-  if (!task) {
-    input.warnings.push("I couldn't find the task tied to that proposal, so I left the calendar unchanged.");
-    return;
-  }
-
-  const startTime = parseRequiredIsoDate(operation.startTime);
-  const endTime = parseRequiredIsoDate(operation.endTime);
-
-  if (!startTime || !endTime || endTime <= startTime) {
-    input.warnings.push("That proposal had an invalid time range, so I left the calendar unchanged.");
+  if (!scheduleDetails) {
+    input.warnings.push("I couldn't find the work item tied to that proposal, so I left the calendar unchanged.");
     return;
   }
 
   const conflicts = detectSchedulingConflicts(
     input.userSchedulingContext,
-    startTime,
-    endTime,
+    scheduleDetails.startTime,
+    scheduleDetails.endTime,
   );
-  const updatedTask = await applyScheduleOperationToCalendar(
+  const applied = await applyScheduleDetailsToCalendar(
     input.userId,
     input.tokens,
-    task,
-    operation,
+    scheduleDetails,
     db,
   );
 
-  if (!updatedTask) {
+  if (!applied) {
     input.warnings.push("I couldn't apply that proposal to the calendar, so it is still waiting for confirmation.");
     return;
   }
 
-  input.tasksById.set(updatedTask.id, updatedTask);
-  input.sideEffects.tasks.push(updatedTask);
+  if (applied.type === "task") {
+    input.tasksById.set(applied.task.id, applied.task);
+    input.sideEffects.tasks.push(applied.task);
+  }
 
   await updateScheduleProposalStatus(
     {
@@ -1140,19 +1175,24 @@ async function resolveScheduleActionDetails(
     sideEffects: AssistantSideEffects;
   },
   db: ReturnType<typeof getWorkspaceExecutor>,
-): Promise<{
-  task: TaskRecord;
-  title: string;
-  description: string;
-  startTime: Date;
-  endTime: Date;
-  operation: ScheduleProposalOperation;
-} | null> {
+): Promise<ScheduleActionDetails | null> {
   const startTime = parseRequiredIsoDate(input.action.startTime);
   const endTime = parseRequiredIsoDate(input.action.endTime);
 
   if (!startTime || !endTime || endTime <= startTime) {
     return null;
+  }
+
+  if (
+    input.action.type === "schedule_goal_focus" ||
+    input.action.type === "propose_schedule_goal_focus"
+  ) {
+    return resolveGoalFocusForSchedulingAction({
+      action: input.action,
+      goalsById: input.goalsById,
+      startTime,
+      endTime,
+    });
   }
 
   const task = await resolveTaskForSchedulingAction(input, db);
@@ -1165,6 +1205,7 @@ async function resolveScheduleActionDetails(
   const description = input.action.description ?? task.description ?? "";
 
   return {
+    kind: "task",
     task,
     title,
     description,
@@ -1219,11 +1260,123 @@ async function resolveTaskForSchedulingAction(
   return task;
 }
 
-async function applyScheduleOperationToCalendar(
+function resolveGoalFocusForSchedulingAction(input: {
+  action: AssistantAction;
+  goalsById: Map<string, GoalRecord>;
+  startTime: Date;
+  endTime: Date;
+}): ScheduleGoalFocusActionDetails | null {
+  const goal = input.action.goalId
+    ? input.goalsById.get(input.action.goalId) ?? null
+    : null;
+
+  if (!goal) {
+    return null;
+  }
+
+  const focusArea = resolveGoalFocusArea(goal, input.action.focusId, input.action.title);
+  const title = input.action.title ?? focusArea?.title ?? goal.title;
+  const description =
+    input.action.description ??
+    focusArea?.description ??
+    goal.definition ??
+    "";
+
+  return {
+    kind: "goal_focus",
+    goal,
+    focusArea,
+    title,
+    description,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    operation: {
+      type: "schedule_goal_focus",
+      goalId: goal.id,
+      focusId: focusArea?.id ?? input.action.focusId,
+      title,
+      description,
+      startTime: input.startTime.toISOString(),
+      endTime: input.endTime.toISOString(),
+    },
+  };
+}
+
+function resolveScheduleDetailsFromProposalOperation(
+  operation: ScheduleProposalOperation,
+  goalsById: Map<string, GoalRecord>,
+  tasksById: Map<string, TaskRecord>,
+): ScheduleActionDetails | null {
+  const startTime = parseRequiredIsoDate(operation.startTime);
+  const endTime = parseRequiredIsoDate(operation.endTime);
+
+  if (!startTime || !endTime || endTime <= startTime) {
+    return null;
+  }
+
+  if (operation.type === "schedule_task") {
+    const task = tasksById.get(operation.taskId);
+
+    if (!task) {
+      return null;
+    }
+
+    return {
+      kind: "task",
+      task,
+      title: operation.title,
+      description: operation.description,
+      startTime,
+      endTime,
+      operation,
+    };
+  }
+
+  const goal = goalsById.get(operation.goalId);
+
+  if (!goal) {
+    return null;
+  }
+
+  return {
+    kind: "goal_focus",
+    goal,
+    focusArea: resolveGoalFocusArea(goal, operation.focusId, operation.title),
+    title: operation.title,
+    description: operation.description,
+    startTime,
+    endTime,
+    operation,
+  };
+}
+
+async function applyScheduleDetailsToCalendar(
+  userId: string,
+  tokens: Credentials,
+  details: ScheduleActionDetails,
+  db: ReturnType<typeof getWorkspaceExecutor>,
+) {
+  if (details.kind === "goal_focus") {
+    const applied = await applyGoalFocusOperationToCalendar(tokens, details.operation);
+    return applied ? { type: "goal_focus" as const } : null;
+  }
+
+  const task = await applyTaskScheduleOperationToCalendar(
+    userId,
+    tokens,
+    details.task,
+    details.operation,
+    db,
+  );
+
+  return task ? { type: "task" as const, task } : null;
+}
+
+async function applyTaskScheduleOperationToCalendar(
   userId: string,
   tokens: Credentials,
   task: TaskRecord,
-  operation: ScheduleProposalOperation,
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_task" }>,
   db: ReturnType<typeof getWorkspaceExecutor>,
 ) {
   const startTime = parseRequiredIsoDate(operation.startTime);
@@ -1278,6 +1431,25 @@ async function applyScheduleOperationToCalendar(
     },
     db,
   );
+}
+
+async function applyGoalFocusOperationToCalendar(
+  tokens: Credentials,
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_goal_focus" }>,
+) {
+  const startTime = parseRequiredIsoDate(operation.startTime);
+  const endTime = parseRequiredIsoDate(operation.endTime);
+
+  if (!startTime || !endTime || endTime <= startTime) {
+    return null;
+  }
+
+  return createGoogleCalendarEvent(tokens, {
+    title: operation.title,
+    description: operation.description,
+    startTime,
+    endTime,
+  });
 }
 
 function buildScheduleProposalSummary(
@@ -1391,6 +1563,52 @@ function appendReflectionSaveSummary(message: string, suggestionCount: number) {
   return `${message}\n\n${suggestionSummary}`;
 }
 
+function buildGoalFocusAreasFromPlan(plan: GeneratedPlan): GoalFocusArea[] {
+  const seenTitles = new Set<string>();
+  const focusTitles = [
+    ...plan.fourteenDayPerformanceGoals.map((title) => ({
+      title,
+      description: "Near-term focus from the initial goal plan.",
+    })),
+    ...plan.thirtyDayPerformanceGoals.map((title) => ({
+      title,
+      description: "30-day focus from the initial goal plan.",
+    })),
+  ];
+
+  return focusTitles.flatMap((focus) => {
+    const normalizedTitle = focus.title.trim();
+    const key = normalizedTitle.toLowerCase();
+
+    if (!normalizedTitle || seenTitles.has(key)) {
+      return [];
+    }
+
+    seenTitles.add(key);
+
+    return [
+      {
+        id: createStableFocusId(normalizedTitle),
+        title: normalizedTitle,
+        description: focus.description,
+        status: "active",
+        defaultDurationMinutes: null,
+        cadence: null,
+      },
+    ];
+  });
+}
+
+function buildScheduleGuidanceFromPlan(plan: GeneratedPlan): Record<string, unknown> {
+  return {
+    timeAvailability: plan.timeAvailability,
+    timeProtectionPlan: plan.timeProtectionPlan,
+    limitingHabits: plan.limitingHabits,
+    scriptedActions: plan.scriptedActions,
+    environmentalOptimizations: plan.environmentalOptimizations,
+  };
+}
+
 function resolveReflectionDateRange(
   timeframeStart: string | null,
   timeframeEnd: string | null,
@@ -1491,12 +1709,6 @@ function toIntegerOrNullUndefined(value: number | null) {
   return value === null ? null : toIntegerOrUndefined(value);
 }
 
-function addDaysIso(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date.toISOString();
-}
-
 function addDaysDate(date: Date, days: number) {
   const nextDate = new Date(date);
   nextDate.setDate(nextDate.getDate() + days);
@@ -1516,6 +1728,41 @@ function findTaskByTitle(
   }
 
   return null;
+}
+
+function resolveGoalFocusArea(
+  goal: GoalRecord,
+  focusId: string | null,
+  title: string | null,
+) {
+  if (focusId) {
+    const focusArea = goal.focusAreas.find((focus) => focus.id === focusId);
+
+    if (focusArea) {
+      return focusArea;
+    }
+  }
+
+  const normalizedTitle = title?.trim().toLowerCase();
+
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  return (
+    goal.focusAreas.find(
+      (focus) => focus.title.trim().toLowerCase() === normalizedTitle,
+    ) ?? null
+  );
+}
+
+function createStableFocusId(title: string) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
 }
 
 function encodeCalendarReference(input: {

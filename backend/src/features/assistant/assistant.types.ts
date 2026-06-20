@@ -1,5 +1,6 @@
 import type {
   AssistantMessageRecord,
+  GoalFocusArea,
   AssistantThreadRecord,
   GoalMetricRecord,
   GoalRecord,
@@ -32,6 +33,8 @@ export type AssistantActionType =
   | "update_metric"
   | "schedule_task"
   | "propose_schedule_task"
+  | "schedule_goal_focus"
+  | "propose_schedule_goal_focus"
   | "confirm_schedule_proposal"
   | "dismiss_schedule_proposal";
 
@@ -39,10 +42,15 @@ export type AssistantAction = {
   type: AssistantActionType;
   proposalId: string | null;
   goalId: string | null;
+  focusId: string | null;
   taskId: string | null;
   metricId: string | null;
   title: string | null;
   definition: string | null;
+  successCriteria: string[];
+  focusAreas: GoalFocusArea[];
+  scheduleGuidance: Record<string, unknown> | null;
+  constraints: string[];
   notes: string | null;
   description: string | null;
   unitLabel: string | null;

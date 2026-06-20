@@ -155,6 +155,9 @@ export default function GoalsScreen() {
           const linkedLogs = workLogs
             .filter((workLog) => workLog.goalId === goal.id)
             .slice(0, 2);
+          const scheduleGuidanceLabels = getScheduleGuidanceLabels(
+            goal.scheduleGuidance,
+          );
           const isEditing = editingGoalId === goal.id;
 
           return (
@@ -247,6 +250,77 @@ export default function GoalsScreen() {
               >
                 {goal.definition || "This goal still needs a richer definition from chat."}
               </Text>
+
+              {goal.focusAreas.length > 0 ? (
+                <View style={{ gap: 8 }}>
+                  <SectionLabel label="Current focus" />
+                  <View style={{ gap: 8 }}>
+                    {goal.focusAreas.slice(0, 4).map((focusArea) => (
+                      <View
+                        key={focusArea.id}
+                        style={{
+                          gap: 4,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#132521",
+                            fontWeight: "700",
+                          }}
+                        >
+                          {focusArea.title}
+                        </Text>
+                        {focusArea.description ? (
+                          <Text
+                            style={{
+                              color: "#5a6762",
+                              lineHeight: 20,
+                            }}
+                          >
+                            {focusArea.description}
+                          </Text>
+                        ) : null}
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            flexWrap: "wrap",
+                            gap: 8,
+                          }}
+                        >
+                          <InfoChip label={focusArea.status} />
+                          {focusArea.defaultDurationMinutes ? (
+                            <InfoChip
+                              label={`${focusArea.defaultDurationMinutes} min`}
+                            />
+                          ) : null}
+                          {focusArea.cadence ? (
+                            <InfoChip label={focusArea.cadence} />
+                          ) : null}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              {goal.successCriteria.length > 0 ? (
+                <DetailPills
+                  label="Success criteria"
+                  values={goal.successCriteria}
+                />
+              ) : null}
+
+              {goal.constraints.length > 0 ? (
+                <DetailPills label="Constraints" values={goal.constraints} />
+              ) : null}
+
+              {scheduleGuidanceLabels.length > 0 ? (
+                <DetailPills
+                  label="Schedule guidance"
+                  values={scheduleGuidanceLabels}
+                />
+              ) : null}
 
               {linkedMetrics.length > 0 ? (
                 <View style={{ gap: 10 }}>
@@ -470,6 +544,61 @@ function InfoChip({ label }: { label: string }) {
       </Text>
     </View>
   );
+}
+
+function DetailPills({ label, values }: { label: string; values: string[] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <SectionLabel label={label} />
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+        }}
+      >
+        {values.slice(0, 4).map((value) => (
+          <InfoChip key={`${label}-${value}`} label={value} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function SectionLabel({ label }: { label: string }) {
+  return (
+    <Text
+      style={{
+        color: "#31413c",
+        fontSize: 12,
+        fontWeight: "800",
+        textTransform: "uppercase",
+      }}
+    >
+      {label}
+    </Text>
+  );
+}
+
+function getScheduleGuidanceLabels(guidance: Record<string, unknown>) {
+  const labels: string[] = [];
+  const timeAvailability =
+    typeof guidance.timeAvailability === "string"
+      ? guidance.timeAvailability.trim()
+      : "";
+  const timeProtectionPlan = Array.isArray(guidance.timeProtectionPlan)
+    ? guidance.timeProtectionPlan
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : [];
+
+  if (timeAvailability.length > 0 && timeAvailability !== "Not specified yet") {
+    labels.push(timeAvailability);
+  }
+
+  labels.push(...timeProtectionPlan);
+  return labels;
 }
 
 function LabeledField({

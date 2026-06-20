@@ -26,6 +26,8 @@ const actionTypes: AssistantActionType[] = [
   "update_metric",
   "schedule_task",
   "propose_schedule_task",
+  "schedule_goal_focus",
+  "propose_schedule_goal_focus",
   "confirm_schedule_proposal",
   "dismiss_schedule_proposal",
 ];
@@ -35,10 +37,30 @@ function modelAction(type: AssistantActionType) {
     type,
     proposalId: "proposal-1",
     goalId: "goal-1",
+    focusId: "focus-1",
     taskId: "task-1",
     metricId: "metric-1",
     title: "  Launch beta  ",
     definition: "Ship a useful beta",
+    successCriteria: ["  Five interviews  "],
+    focusAreas: [
+      {
+        id: "focus-1",
+        title: "  Interview users  ",
+        description: "Talk to likely users",
+        status: "active",
+        defaultDurationMinutes: 45,
+        cadence: "weekly",
+      },
+    ],
+    scheduleGuidance: {
+      timeAvailability: "Weekday mornings",
+      timeProtectionPlan: ["Block 45 minutes"],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+    },
+    constraints: ["  Keep weekends open  "],
     notes: "Keep it realistic",
     description: "Plan the launch",
     unitLabel: "hours",
@@ -97,8 +119,11 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
   assert.match(instructions, /do not require barrier analysis/u);
   assert.match(instructions, /later reflection data/u);
   assert.match(instructions, /Only create or update goals/u);
+  assert.match(instructions, /Do not auto-create tasks from goals/u);
+  assert.match(instructions, /goal-focus scheduling/u);
   assert.match(instructions, /When enough information exists/u);
   assert.match(instructions, /propose_schedule_task/u);
+  assert.match(instructions, /propose_schedule_goal_focus/u);
   assert.match(instructions, /confirm_schedule_proposal/u);
   assert.match(instructions, /Never say a record was created/u);
   assert.match(instructions, /Return valid JSON/u);
@@ -185,6 +210,17 @@ test("normalizeAssistantModelResponse accepts every supported action type", () =
     assert.equal(result.navigationHint, "goals");
     assert.equal(result.actions[0]?.type, actionType);
     assert.equal(result.actions[0]?.title, "Launch beta");
+    assert.equal(result.actions[0]?.focusId, "focus-1");
+    assert.deepEqual(result.actions[0]?.successCriteria, ["Five interviews"]);
+    assert.equal(result.actions[0]?.focusAreas[0]?.title, "Interview users");
+    assert.deepEqual(result.actions[0]?.scheduleGuidance, {
+      timeAvailability: "Weekday mornings",
+      timeProtectionPlan: ["Block 45 minutes"],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+    });
+    assert.deepEqual(result.actions[0]?.constraints, ["Keep weekends open"]);
     assert.equal(result.actions[0]?.targetValue, 10);
     assert.equal(result.actions[0]?.isActive, true);
   }
@@ -238,6 +274,76 @@ test("normalizeAssistantModelResponse drops malformed actions", () => {
   assert.equal(result.actions[0]?.definition, null);
   assert.equal(result.actions[0]?.currentValue, null);
   assert.equal(result.actions[0]?.isActive, null);
+});
+
+test("normalizeAssistantModelResponse sanitizes goal focus action fields", () => {
+  const result = normalizeAssistantModelResponse({
+    assistantMessage: "Done",
+    contextSummary: "Summary",
+    navigationHint: "goals",
+    actions: [
+      {
+        ...modelAction("update_goal"),
+        focusId: null,
+        successCriteria: "not-an-array",
+        focusAreas: [
+          null,
+          [],
+          { title: "   " },
+          {
+            id: null,
+            title: "  API design prep!  ",
+            description: null,
+            status: "paused",
+            defaultDurationMinutes: -5,
+            cadence: null,
+          },
+        ],
+        scheduleGuidance: null,
+        constraints: ["  one session at a time  "],
+      },
+      {
+        ...modelAction("update_goal"),
+        focusAreas: [
+          {
+            id: null,
+            title: "  Resume polish  ",
+            description: "Improve the resume",
+            status: "completed",
+            defaultDurationMinutes: 30,
+            cadence: "one time",
+          },
+        ],
+        scheduleGuidance: [],
+      },
+    ],
+  });
+
+  assert.equal(result.actions[0]?.focusId, null);
+  assert.deepEqual(result.actions[0]?.successCriteria, []);
+  assert.deepEqual(result.actions[0]?.focusAreas, [
+    {
+      id: "api-design-prep",
+      title: "API design prep!",
+      description: "",
+      status: "paused",
+      defaultDurationMinutes: null,
+      cadence: null,
+    },
+  ]);
+  assert.equal(result.actions[0]?.scheduleGuidance, null);
+  assert.deepEqual(result.actions[0]?.constraints, ["one session at a time"]);
+  assert.deepEqual(result.actions[1]?.focusAreas, [
+    {
+      id: "resume-polish",
+      title: "Resume polish",
+      description: "Improve the resume",
+      status: "completed",
+      defaultDurationMinutes: 30,
+      cadence: "one time",
+    },
+  ]);
+  assert.equal(result.actions[1]?.scheduleGuidance, null);
 });
 
 test("normalizeAssistantModelResponse rejects malformed top-level responses", () => {
@@ -315,6 +421,20 @@ test("normalizeScheduleReflectionModelResponse extracts reflection and strategy 
         confidence: "medium",
         obstacle: null,
       },
+      {
+        title: " Protect the first block ",
+        detail: "Start with the most important work before checking messages.",
+        strength: "hard_constraint",
+        confidence: "high",
+        obstacle: null,
+      },
+      {
+        title: " Use a fallback block ",
+        detail: "If the long block slips, schedule a shorter recovery block.",
+        strength: "unknown",
+        confidence: "unknown",
+        obstacle: null,
+      },
     ],
   });
 
@@ -334,7 +454,40 @@ test("normalizeScheduleReflectionModelResponse extracts reflection and strategy 
       confidence: "medium",
       obstacle: "Lost momentum after lunch",
     },
+    {
+      title: "Protect the first block",
+      detail: "Start with the most important work before checking messages.",
+      strength: "hard_constraint",
+      confidence: "high",
+      obstacle: null,
+    },
+    {
+      title: "Use a fallback block",
+      detail: "If the long block slips, schedule a shorter recovery block.",
+      strength: "soft_preference",
+      confidence: "low",
+      obstacle: null,
+    },
   ]);
+});
+
+test("normalizeScheduleReflectionModelResponse handles optional fallback fields", () => {
+  const result = normalizeScheduleReflectionModelResponse({
+    assistantMessage: "Tell me what worked and what did not.",
+    shouldSaveReflection: false,
+    summary: null,
+    contextSummary: "Asked for reflection details",
+    navigationHint: null,
+    timeframeStart: null,
+    timeframeEnd: null,
+    liked: [],
+    disliked: [],
+    obstacles: [],
+    strategySuggestions: undefined,
+  });
+
+  assert.equal(result.summary, "");
+  assert.deepEqual(result.strategySuggestions, []);
 });
 
 test("normalizeWorkLogModelResponse handles absent progress updates and invalid ids", () => {
