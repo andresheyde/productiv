@@ -1,5 +1,14 @@
 import { apiRequest } from "@/features/shared/api/request";
 
+export type GoogleCalendarSource = {
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string | null;
+  backgroundColor: string | null;
+  included: boolean;
+};
+
 type CreateGoogleCalendarEventInput = {
   title?: string;
   description?: string;
@@ -77,4 +86,36 @@ export async function deleteGoogleCalendarEvent(
     method: "DELETE",
     sessionToken: input.sessionToken,
   });
+}
+
+export async function fetchGoogleCalendarSources(
+  sessionToken?: string | null,
+) {
+  const response = await apiRequest("/calendar/sources", {
+    sessionToken,
+  });
+
+  return ((await response.json()) as {
+    calendars: GoogleCalendarSource[];
+  }).calendars;
+}
+
+export async function updateGoogleCalendarSources(input: {
+  includedCalendarIds: string[];
+  sessionToken?: string | null;
+}) {
+  const response = await apiRequest("/calendar/sources", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    sessionToken: input.sessionToken,
+    body: JSON.stringify({
+      includedCalendarIds: input.includedCalendarIds,
+    }),
+  });
+
+  return ((await response.json()) as {
+    calendars: GoogleCalendarSource[];
+  }).calendars;
 }

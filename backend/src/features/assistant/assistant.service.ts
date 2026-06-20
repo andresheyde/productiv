@@ -4,8 +4,10 @@ import { getStructuredAiProvider } from "../../shared/ai/provider-factory.ts";
 import { getRuntimePool } from "../../shared/db/postgres.ts";
 import {
   createGoogleCalendarEvent,
+  getMergedCalendarEvents,
   updateGoogleCalendarEvent,
 } from "../calendar/calendar.service.ts";
+import { getIncludedCalendarIdsForUser } from "../calendar/calendar-preferences.repository.ts";
 import type { AuthenticatedUser } from "../auth/auth.types.ts";
 import { runPlanningTurn } from "../planning/planning.service.ts";
 import type {
@@ -111,6 +113,32 @@ type ScheduleActionDetails =
   | ScheduleTaskActionDetails
   | ScheduleGoalFocusActionDetails;
 
+type ScheduleCalendarEventContext = {
+  id: string | null;
+  title: string;
+  start: string | null;
+  end: string | null;
+  allDay: boolean;
+  sourceCalendarId: string;
+  sourceCalendarName: string;
+};
+
+type TaskSchedulingContextItem = {
+  id: string;
+  title: string;
+  goalId: string | null;
+  status: TaskRecord["status"];
+  priorityRank: number;
+  estimatedMinutes: number | null;
+  dueAt: string | null;
+  scheduleIntent: TaskRecord["scheduleIntent"];
+  linkedCalendarEventId: string | null;
+  calendarStatus: "scheduled" | "pending_proposal" | "needs_scheduling";
+  reason: string;
+  matchedCalendarEvent: ScheduleCalendarEventContext | null;
+  pendingProposalId: string | null;
+};
+
 export async function getAssistantThreadForUser(
   userId: string,
 ): Promise<AssistantThreadResponse> {
@@ -194,6 +222,18 @@ export async function runAssistantTurn(input: {
     });
   }
 
+  const calendarContext = await loadScheduleRelevantCalendarContext({
+    userId: input.user.id,
+    tokens: input.tokens,
+    message: trimmedMessage,
+    mode: inferredMode,
+  });
+  const taskSchedulingContext = buildTaskSchedulingContext(
+    tasks,
+    pendingScheduleProposals,
+    calendarContext.events,
+  );
+
   return handleGeneralAssistantTurn({
     threadId: thread.id,
     userId: input.user.id,
@@ -207,6 +247,9 @@ export async function runAssistantTurn(input: {
     userSchedulingContext,
     compiledSchedulingContext,
     pendingScheduleProposals,
+    taskSchedulingContext,
+    scheduleRelevantCalendarEvents: calendarContext.events,
+    calendarContextWarning: calendarContext.warning,
   });
 }
 
@@ -506,6 +549,9 @@ async function handleGeneralAssistantTurn(input: {
   userSchedulingContext: UserSchedulingContextRecord;
   compiledSchedulingContext: CompiledSchedulingContext;
   pendingScheduleProposals: ScheduleProposalRecord[];
+  taskSchedulingContext: TaskSchedulingContextItem[];
+  scheduleRelevantCalendarEvents: Array<Record<string, unknown>>;
+  calendarContextWarning: string | null;
 }): Promise<AssistantTurnResponse> {
   const aiProvider = getStructuredAiProvider();
   const modelResponse = normalizeAssistantModelResponse(
@@ -523,6 +569,9 @@ async function handleGeneralAssistantTurn(input: {
         })),
         schedulingContext: input.compiledSchedulingContext,
         pendingScheduleProposals: input.pendingScheduleProposals,
+        taskSchedulingContext: input.taskSchedulingContext,
+        scheduleRelevantCalendarEvents: input.scheduleRelevantCalendarEvents,
+        calendarContextNote: input.calendarContextWarning,
       }),
       schemaName: "assistant_turn",
       schema: ASSISTANT_TURN_SCHEMA,
@@ -531,6 +580,9 @@ async function handleGeneralAssistantTurn(input: {
 
   const sideEffects = createEmptySideEffects();
   const warnings: string[] = [];
+  if (input.calendarContextWarning) {
+    warnings.push(input.calendarContextWarning);
+  }
   const client = await getRuntimePool().connect();
   const goalsById = new Map(input.goals.map((goal) => [goal.id, goal]));
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
@@ -542,7 +594,14 @@ async function handleGeneralAssistantTurn(input: {
   try {
     await client.query("begin");
 
+    const deferredProposalActions: AssistantAction[] = [];
+
     for (const action of modelResponse.actions) {
+      if (isScheduleProposalAction(action)) {
+        deferredProposalActions.push(action);
+        continue;
+      }
+
       await applyAssistantAction(
         {
           userId: input.userId,
@@ -553,6 +612,23 @@ async function handleGeneralAssistantTurn(input: {
           metricsById,
           threadId: input.threadId,
           currentMessage: input.message,
+          userSchedulingContext: input.userSchedulingContext,
+          pendingProposalsById,
+          sideEffects,
+          warnings,
+        },
+        client,
+      );
+    }
+
+    if (deferredProposalActions.length > 0) {
+      await createProposalFromSchedulingActions(
+        {
+          userId: input.userId,
+          actions: deferredProposalActions,
+          goalsById,
+          tasksById,
+          threadId: input.threadId,
           userSchedulingContext: input.userSchedulingContext,
           pendingProposalsById,
           sideEffects,
@@ -720,11 +796,11 @@ async function applyAssistantAction(
     userId: string;
     tokens: Credentials;
     action: AssistantAction;
+    currentMessage: string;
     goalsById: Map<string, GoalRecord>;
     tasksById: Map<string, TaskRecord>;
     metricsById: Map<string, GoalMetricRecord>;
     threadId: string;
-    currentMessage: string;
     userSchedulingContext: UserSchedulingContextRecord;
     pendingProposalsById: Map<string, ScheduleProposalRecord>;
     sideEffects: AssistantSideEffects;
@@ -913,10 +989,14 @@ async function applyAssistantAction(
     }
     case "schedule_task": {
       if (!userMessageSpecifiesExactSlot(input.currentMessage)) {
-        await createProposalFromSchedulingAction(input, db, {
-          reason:
-            "I saved that as a proposal instead of placing it directly because you did not explicitly choose the exact slot yet.",
-        });
+        await createProposalFromSchedulingActions(
+          { ...input, actions: [input.action] },
+          db,
+          {
+            reason:
+              "I saved that as a proposal instead of placing it directly because you did not explicitly choose the exact slot yet.",
+          },
+        );
         return;
       }
 
@@ -924,15 +1004,18 @@ async function applyAssistantAction(
       return;
     }
     case "propose_schedule_task": {
-      await createProposalFromSchedulingAction(input, db);
       return;
     }
     case "schedule_goal_focus": {
       if (!userMessageSpecifiesExactSlot(input.currentMessage)) {
-        await createProposalFromSchedulingAction(input, db, {
-          reason:
-            "I saved that as a proposal instead of placing it directly because you did not explicitly choose the exact slot yet.",
-        });
+        await createProposalFromSchedulingActions(
+          { ...input, actions: [input.action] },
+          db,
+          {
+            reason:
+              "I saved that as a proposal instead of placing it directly because you did not explicitly choose the exact slot yet.",
+          },
+        );
         return;
       }
 
@@ -940,7 +1023,6 @@ async function applyAssistantAction(
       return;
     }
     case "propose_schedule_goal_focus": {
-      await createProposalFromSchedulingAction(input, db);
       return;
     }
     case "confirm_schedule_proposal": {
@@ -954,10 +1036,10 @@ async function applyAssistantAction(
   }
 }
 
-async function createProposalFromSchedulingAction(
+async function createProposalFromSchedulingActions(
   input: {
     userId: string;
-    action: AssistantAction;
+    actions: AssistantAction[];
     goalsById: Map<string, GoalRecord>;
     tasksById: Map<string, TaskRecord>;
     threadId: string;
@@ -971,26 +1053,48 @@ async function createProposalFromSchedulingAction(
     reason?: string | undefined;
   },
 ) {
-  const scheduleDetails = await resolveScheduleActionDetails(input, db);
+  const scheduleDetails = (
+    await Promise.all(
+      input.actions.map((action) =>
+        resolveScheduleActionDetails(
+          {
+            userId: input.userId,
+            action,
+            goalsById: input.goalsById,
+            tasksById: input.tasksById,
+            sideEffects: input.sideEffects,
+          },
+          db,
+        ),
+      ),
+    )
+  ).filter((details): details is ScheduleActionDetails => details !== null);
+  scheduleDetails.sort(
+    (left, right) => left.startTime.getTime() - right.startTime.getTime(),
+  );
 
-  if (!scheduleDetails) {
+  if (scheduleDetails.length === 0) {
     input.warnings.push("I couldn't save that scheduling proposal because the work item or time window was incomplete.");
     return;
   }
 
-  const conflicts = detectSchedulingConflicts(
-    input.userSchedulingContext,
-    scheduleDetails.startTime,
-    scheduleDetails.endTime,
+  const conflicts = dedupeSchedulingConflicts(
+    scheduleDetails.flatMap((details) =>
+      detectSchedulingConflicts(
+        input.userSchedulingContext,
+        details.startTime,
+        details.endTime,
+      ),
+    ),
   );
   const proposal = await createScheduleProposal(
     {
       userId: input.userId,
       threadId: input.threadId,
-      title: `Schedule ${scheduleDetails.title}`,
+      title: buildScheduleProposalTitle(scheduleDetails),
       intent: "assistant_schedule_proposal",
       summary: buildScheduleProposalSummary(scheduleDetails, conflicts),
-      operations: [scheduleDetails.operation],
+      operations: scheduleDetails.map((details) => details.operation),
       conflictAnnotations: conflicts,
     },
     db,
@@ -1008,6 +1112,7 @@ async function applyDirectScheduleAction(
     userId: string;
     tokens: Credentials;
     action: AssistantAction;
+    currentMessage: string;
     goalsById: Map<string, GoalRecord>;
     tasksById: Map<string, TaskRecord>;
     userSchedulingContext: UserSchedulingContextRecord;
@@ -1057,6 +1162,7 @@ async function confirmScheduleProposalAction(
     userId: string;
     tokens: Credentials;
     action: AssistantAction;
+    currentMessage: string;
     goalsById: Map<string, GoalRecord>;
     tasksById: Map<string, TaskRecord>;
     pendingProposalsById: Map<string, ScheduleProposalRecord>;
@@ -1073,44 +1179,61 @@ async function confirmScheduleProposalAction(
     return;
   }
 
-  const operation = proposal.operations[0];
+  if (!isUnqualifiedProposalConfirmation(input.currentMessage)) {
+    input.warnings.push(
+      "I did not apply that proposal because your feedback looks like a question or requested change. I left it as a draft so you can revise it before confirming.",
+    );
+    return;
+  }
 
-  if (!operation) {
+  if (proposal.operations.length === 0) {
     input.warnings.push("That proposal was missing its scheduling details, so I left the calendar unchanged.");
     return;
   }
 
-  const scheduleDetails = resolveScheduleDetailsFromProposalOperation(
-    operation,
-    input.goalsById,
-    input.tasksById,
+  const scheduleDetails = proposal.operations.map((operation) =>
+    resolveScheduleDetailsFromProposalOperation(
+      operation,
+      input.goalsById,
+      input.tasksById,
+    ),
   );
 
-  if (!scheduleDetails) {
+  if (scheduleDetails.some((details) => details === null)) {
     input.warnings.push("I couldn't find the work item tied to that proposal, so I left the calendar unchanged.");
     return;
   }
 
-  const conflicts = detectSchedulingConflicts(
-    input.userSchedulingContext,
-    scheduleDetails.startTime,
-    scheduleDetails.endTime,
+  const resolvedScheduleDetails = scheduleDetails.filter(
+    (details): details is ScheduleActionDetails => details !== null,
   );
-  const applied = await applyScheduleDetailsToCalendar(
-    input.userId,
-    input.tokens,
-    scheduleDetails,
-    db,
+  const conflicts = dedupeSchedulingConflicts(
+    resolvedScheduleDetails.flatMap((details) =>
+      detectSchedulingConflicts(
+        input.userSchedulingContext,
+        details.startTime,
+        details.endTime,
+      ),
+    ),
   );
 
-  if (!applied) {
-    input.warnings.push("I couldn't apply that proposal to the calendar, so it is still waiting for confirmation.");
-    return;
-  }
+  for (const details of resolvedScheduleDetails) {
+    const applied = await applyScheduleDetailsToCalendar(
+      input.userId,
+      input.tokens,
+      details,
+      db,
+    );
 
-  if (applied.type === "task") {
-    input.tasksById.set(applied.task.id, applied.task);
-    input.sideEffects.tasks.push(applied.task);
+    if (!applied) {
+      input.warnings.push("I couldn't apply that proposal to the calendar, so it is still waiting for confirmation.");
+      return;
+    }
+
+    if (applied.type === "task") {
+      input.tasksById.set(applied.task.id, applied.task);
+      input.sideEffects.tasks.push(applied.task);
+    }
   }
 
   await updateScheduleProposalStatus(
@@ -1452,15 +1575,40 @@ async function applyGoalFocusOperationToCalendar(
   });
 }
 
+function buildScheduleProposalTitle(details: ScheduleActionDetails[]) {
+  const firstDetail = details[0];
+
+  if (!firstDetail) {
+    return "Schedule proposal";
+  }
+
+  if (details.length === 1) {
+    return `Schedule ${firstDetail.title}`;
+  }
+
+  const uniqueTitles = new Set(details.map((detail) => detail.title));
+  if (uniqueTitles.size === 1) {
+    return `Schedule ${details.length} ${firstDetail.title} blocks`;
+  }
+
+  return `Schedule ${details.length} blocks`;
+}
+
 function buildScheduleProposalSummary(
-  details: {
-    title: string;
-    startTime: Date;
-    endTime: Date;
-  },
+  details: ScheduleActionDetails[],
   conflicts: SchedulingConflict[],
 ) {
-  const scheduleLine = `${details.title} on ${details.startTime.toLocaleString()} to ${details.endTime.toLocaleTimeString()}`;
+  const firstDetail = details[0];
+  const lastDetail = details[details.length - 1] ?? firstDetail;
+
+  if (!firstDetail || !lastDetail) {
+    return "No complete schedule blocks were proposed.";
+  }
+
+  const scheduleLine =
+    details.length === 1
+      ? `${firstDetail.title} on ${firstDetail.startTime.toLocaleString()} to ${firstDetail.endTime.toLocaleTimeString()}`
+      : `${details.length} proposed blocks from ${firstDetail.startTime.toLocaleDateString()} to ${lastDetail.startTime.toLocaleDateString()}`;
 
   if (conflicts.length === 0) {
     return scheduleLine;
@@ -1470,20 +1618,61 @@ function buildScheduleProposalSummary(
 }
 
 function buildProposalConfirmationHint(
-  details: {
-    title: string;
-    startTime: Date;
-    endTime: Date;
-  },
+  details: ScheduleActionDetails[],
   conflicts: SchedulingConflict[],
 ) {
-  const base = `Proposed ${details.title} for ${details.startTime.toLocaleString()} to ${details.endTime.toLocaleTimeString()}.`;
+  const firstDetail = details[0];
+  const lastDetail = details[details.length - 1] ?? firstDetail;
+
+  if (!firstDetail || !lastDetail) {
+    return "Reply with the missing work item and time window to revise it.";
+  }
+
+  const base =
+    details.length === 1
+      ? `Proposed ${firstDetail.title} for ${firstDetail.startTime.toLocaleString()} to ${firstDetail.endTime.toLocaleTimeString()}.`
+      : `Proposed ${details.length} blocks from ${firstDetail.startTime.toLocaleDateString()} to ${lastDetail.startTime.toLocaleDateString()}.`;
 
   if (conflicts.length === 0) {
     return `${base} Reply to confirm it or ask for a different time.`;
   }
 
   return `${base} It conflicts with ${formatConflictList(conflicts)}. Reply to confirm anyway or ask for a different time.`;
+}
+
+function dedupeSchedulingConflicts(conflicts: SchedulingConflict[]) {
+  const seen = new Set<string>();
+
+  return conflicts.filter((conflict) => {
+    const key = `${conflict.type}:${conflict.title}:${conflict.detail}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function isScheduleProposalAction(action: AssistantAction) {
+  return (
+    action.type === "propose_schedule_task" ||
+    action.type === "propose_schedule_goal_focus"
+  );
+}
+
+function isUnqualifiedProposalConfirmation(message: string) {
+  const feedbackMatch = /\bfeedback:\s*(?<feedback>.+)$/iu.exec(message);
+  const feedback = feedbackMatch?.groups?.feedback?.trim();
+
+  if (!feedback) {
+    return true;
+  }
+
+  return !/[?]|\b(is|are|was|were|what|why|how|can|could|should|would|instead|different|change|move|not|just|only)\b/iu.test(
+    feedback,
+  );
 }
 
 function resolvePendingProposal(
@@ -1531,6 +1720,268 @@ function inferTurnMode(
   }
 
   return "chat";
+}
+
+async function loadScheduleRelevantCalendarContext(input: {
+  userId: string;
+  tokens: Credentials;
+  message: string;
+  mode: AssistantTurnMode;
+}): Promise<{
+  events: ScheduleCalendarEventContext[];
+  warning: string | null;
+}> {
+  if (!shouldLoadCalendarContext(input.message, input.mode)) {
+    return {
+      events: [],
+      warning: null,
+    };
+  }
+
+  const startDate = new Date();
+  const endDate = addDaysDate(startDate, 21);
+
+  try {
+    const includedCalendarIds = await getIncludedCalendarIdsForUser(input.userId);
+    const events = await getMergedCalendarEvents(
+      input.tokens,
+      startDate,
+      endDate,
+      includedCalendarIds,
+    );
+
+    return {
+      events: events.slice(0, 50).map((event) => ({
+        id: event.id ?? null,
+        title: event.summary ?? "Untitled event",
+        start: event.start?.dateTime ?? event.start?.date ?? null,
+        end: event.end?.dateTime ?? event.end?.date ?? null,
+        allDay: !event.start?.dateTime || !event.end?.dateTime,
+        sourceCalendarId: event.sourceCalendarId,
+        sourceCalendarName: event.sourceCalendarName,
+      })),
+      warning: null,
+    };
+  } catch (error) {
+    console.error("[Assistant] Failed to load calendar context", error);
+
+    return {
+      events: [],
+      warning:
+        "I could not load included calendar events for this turn, so the schedule proposal may miss calendar conflicts.",
+    };
+  }
+}
+
+function shouldLoadCalendarContext(message: string, mode: AssistantTurnMode) {
+  if (mode !== "chat") {
+    return false;
+  }
+
+  return /\b(schedule|calendar|next week|this week|tomorrow|today|weekend|travel|trip|beach|busy|available|availability|conflict)\b/i.test(
+    message,
+  );
+}
+
+function buildTaskSchedulingContext(
+  tasks: TaskRecord[],
+  pendingScheduleProposals: ScheduleProposalRecord[],
+  calendarEvents: ScheduleCalendarEventContext[],
+): TaskSchedulingContextItem[] {
+  return tasks
+    .filter((task) => task.status !== "done" && task.status !== "canceled")
+    .map((task) =>
+      buildTaskSchedulingContextItem(
+        task,
+        pendingScheduleProposals,
+        calendarEvents,
+      ),
+    )
+    .sort(compareTaskSchedulingContextItems);
+}
+
+function buildTaskSchedulingContextItem(
+  task: TaskRecord,
+  pendingScheduleProposals: ScheduleProposalRecord[],
+  calendarEvents: ScheduleCalendarEventContext[],
+): TaskSchedulingContextItem {
+  const pendingProposalId = findPendingProposalIdForTask(
+    task,
+    pendingScheduleProposals,
+  );
+
+  if (pendingProposalId) {
+    return {
+      ...baseTaskSchedulingContextItem(task),
+      calendarStatus: "pending_proposal",
+      reason: "Task already appears in a draft schedule proposal.",
+      matchedCalendarEvent: null,
+      pendingProposalId,
+    };
+  }
+
+  const matchedCalendarEvent = findCalendarEventForTask(task, calendarEvents);
+
+  if (matchedCalendarEvent || task.linkedCalendarEventId) {
+    return {
+      ...baseTaskSchedulingContextItem(task),
+      calendarStatus: "scheduled",
+      reason: matchedCalendarEvent
+        ? "Task matches an included calendar event."
+        : "Task has a linked calendar event id.",
+      matchedCalendarEvent,
+      pendingProposalId: null,
+    };
+  }
+
+  return {
+    ...baseTaskSchedulingContextItem(task),
+    calendarStatus: "needs_scheduling",
+    reason:
+      task.scheduleIntent === "schedule_now" || task.dueAt
+        ? "Task has schedule intent or a due date but no matching calendar event."
+        : "Task is active and not represented on the calendar.",
+    matchedCalendarEvent: null,
+    pendingProposalId: null,
+  };
+}
+
+function baseTaskSchedulingContextItem(
+  task: TaskRecord,
+): Omit<
+  TaskSchedulingContextItem,
+  "calendarStatus" | "reason" | "matchedCalendarEvent" | "pendingProposalId"
+> {
+  return {
+    id: task.id,
+    title: task.title,
+    goalId: task.goalId,
+    status: task.status,
+    priorityRank: task.priorityRank,
+    estimatedMinutes: task.estimatedMinutes,
+    dueAt: task.dueAt,
+    scheduleIntent: task.scheduleIntent,
+    linkedCalendarEventId: task.linkedCalendarEventId,
+  };
+}
+
+function findPendingProposalIdForTask(
+  task: TaskRecord,
+  pendingScheduleProposals: ScheduleProposalRecord[],
+) {
+  return (
+    pendingScheduleProposals.find((proposal) =>
+      proposal.operations.some(
+        (operation) =>
+          operation.type === "schedule_task" && operation.taskId === task.id,
+      ),
+    )?.id ?? null
+  );
+}
+
+function findCalendarEventForTask(
+  task: TaskRecord,
+  calendarEvents: ScheduleCalendarEventContext[],
+) {
+  const calendarReference = parseCalendarReference(task.linkedCalendarEventId);
+
+  if (calendarReference) {
+    const linkedEvent = calendarEvents.find(
+      (event) =>
+        event.id === calendarReference.eventId &&
+        event.sourceCalendarId === calendarReference.calendarId,
+    );
+
+    if (linkedEvent) {
+      return linkedEvent;
+    }
+  }
+
+  const taskDueAt = parseOptionalIsoDate(task.dueAt);
+
+  if (!taskDueAt) {
+    return null;
+  }
+
+  return (
+    calendarEvents.find((event) => {
+      if (event.allDay || !event.start || !event.end) {
+        return false;
+      }
+
+      const eventStart = parseOptionalIsoDate(event.start);
+      const eventEnd = parseOptionalIsoDate(event.end);
+
+      if (!eventStart || !eventEnd) {
+        return false;
+      }
+
+      return (
+        datesAreSameDay(taskDueAt, eventStart) &&
+        Math.abs(taskDueAt.getTime() - eventStart.getTime()) <=
+          6 * 60 * 60 * 1000 &&
+        titlesLikelyMatch(task.title, event.title)
+      );
+    }) ?? null
+  );
+}
+
+function compareTaskSchedulingContextItems(
+  left: TaskSchedulingContextItem,
+  right: TaskSchedulingContextItem,
+) {
+  const statusPriority = {
+    needs_scheduling: 0,
+    pending_proposal: 1,
+    scheduled: 2,
+  };
+  const statusDifference =
+    statusPriority[left.calendarStatus] - statusPriority[right.calendarStatus];
+
+  if (statusDifference !== 0) {
+    return statusDifference;
+  }
+
+  const leftDueAt = left.dueAt ?? "9999-12-31T00:00:00.000Z";
+  const rightDueAt = right.dueAt ?? "9999-12-31T00:00:00.000Z";
+  const dueDifference = leftDueAt.localeCompare(rightDueAt);
+
+  if (dueDifference !== 0) {
+    return dueDifference;
+  }
+
+  return left.priorityRank - right.priorityRank;
+}
+
+function datesAreSameDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function titlesLikelyMatch(left: string, right: string) {
+  const leftTitle = normalizeComparableTitle(left);
+  const rightTitle = normalizeComparableTitle(right);
+
+  if (!leftTitle || !rightTitle) {
+    return false;
+  }
+
+  return (
+    leftTitle === rightTitle ||
+    leftTitle.includes(rightTitle) ||
+    rightTitle.includes(leftTitle)
+  );
+}
+
+function normalizeComparableTitle(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function createEmptySideEffects(): AssistantSideEffects {

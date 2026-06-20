@@ -122,10 +122,11 @@ export function getMissingPlanRequirements(draft: DraftPlanningState): string[] 
   }
 
   if (
+    draft.direction.length === 0 &&
     draft.thirtyDayPerformanceGoals.length === 0 &&
     draft.fourteenDayPerformanceGoals.length === 0
   ) {
-    missingFields.push("at least one milestone, task, or tracking target");
+    missingFields.push("at least one thing you need to do to achieve it");
   }
 
   return missingFields;

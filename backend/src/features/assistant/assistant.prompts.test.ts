@@ -118,6 +118,9 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
   assert.match(instructions, /minimum missing information/u);
   assert.match(instructions, /do not require barrier analysis/u);
   assert.match(instructions, /later reflection data/u);
+  assert.match(instructions, /one separate calendar event per block/u);
+  assert.match(instructions, /next Sunday-through-Saturday/u);
+  assert.match(instructions, /schedule-relevant calendar events/u);
   assert.match(instructions, /Only create or update goals/u);
   assert.match(instructions, /Do not auto-create tasks from goals/u);
   assert.match(instructions, /goal-focus scheduling/u);
@@ -157,12 +160,25 @@ test("assistant turn input serializes the latest message and workspace context",
     messages: [{ role: "user", content: "hello" }],
     schedulingContext: { recoveryDays: [0] },
     pendingScheduleProposals: [{ id: "proposal-1" }],
+    taskSchedulingContext: [
+      {
+        id: "task-1",
+        title: "Draft",
+        calendarStatus: "needs_scheduling",
+      },
+    ],
+    scheduleRelevantCalendarEvents: [{ title: "Beach trip" }],
+    calendarContextNote: null,
   });
 
   assert.match(input, /Current timestamp:/u);
   assert.match(input, /Latest user message:\nSchedule task one tomorrow at 9am\./u);
   assert.match(input, /"title": "Launch"/u);
   assert.match(input, /Pending schedule proposals/u);
+  assert.match(input, /Task scheduling context/u);
+  assert.match(input, /needs_scheduling/u);
+  assert.match(input, /Schedule-relevant calendar events/u);
+  assert.match(input, /Beach trip/u);
 });
 
 test("work log input serializes message and matching context", () => {

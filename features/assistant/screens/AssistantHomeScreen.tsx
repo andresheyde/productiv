@@ -1,4 +1,10 @@
-import { useMemo, useState } from "react";
+import {
+  addDays,
+  differenceInCalendarDays,
+  differenceInMinutes,
+  startOfDay,
+} from "date-fns";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,6 +20,7 @@ import { usePathname } from "expo-router";
 
 import { useAuth } from "@/features/auth/AuthProvider";
 import { connectGoogleCalendar } from "@/features/auth/googleAuth";
+import { fetchScheduleEvents } from "@/features/schedule/api/scheduleApi";
 import type {
   AssistantMessage,
   AssistantTurnMode,
@@ -792,6 +799,8 @@ function ScheduleProposalCard({
         </View>
       </View>
 
+      <ScheduleProposalWeekPreview proposal={proposal} />
+
       <ScrollView
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
@@ -946,6 +955,320 @@ function ScheduleProposalCard({
           />
         </View>
       </View>
+    </View>
+  );
+}
+
+type ProposalPreviewEvent = {
+  id: string;
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  allDay: boolean;
+  source: "calendar" | "proposal";
+  calendarName?: string;
+};
+
+const PREVIEW_START_HOUR = 6;
+const PREVIEW_END_HOUR = 22;
+const PREVIEW_HOUR_HEIGHT = 30;
+const PREVIEW_DAY_WIDTH = 96;
+const PREVIEW_TIMED_HEIGHT =
+  (PREVIEW_END_HOUR - PREVIEW_START_HOUR) * PREVIEW_HOUR_HEIGHT;
+
+function ScheduleProposalWeekPreview({
+  proposal,
+}: {
+  proposal: ScheduleProposal;
+}) {
+  const { isAuthenticated, sessionToken } = useAuth();
+  const range = useMemo(() => getProposalPreviewRange(proposal), [proposal]);
+  const rangeKey = range
+    ? `${range.startDate.toISOString()}:${range.endDate.toISOString()}`
+    : "";
+  const [calendarEvents, setCalendarEvents] = useState<ProposalPreviewEvent[]>(
+    [],
+  );
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!range || !isAuthenticated) {
+      setCalendarEvents([]);
+      setPreviewError(null);
+      return;
+    }
+
+    let isCanceled = false;
+    setIsLoadingPreview(true);
+    setPreviewError(null);
+
+    fetchScheduleEvents(range.startDate, range.endDate, sessionToken)
+      .then((events) => {
+        if (isCanceled) {
+          return;
+        }
+
+        setCalendarEvents(
+          events.map((event) => ({
+            id: `calendar:${event.sourceCalendarId}:${event.id}`,
+            title: event.title,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            allDay: event.allDay,
+            source: "calendar" as const,
+            calendarName: event.sourceCalendarName,
+          })),
+        );
+      })
+      .catch((error) => {
+        if (!isCanceled) {
+          setCalendarEvents([]);
+          setPreviewError(
+            error instanceof Error ? error.message : "Preview unavailable.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!isCanceled) {
+          setIsLoadingPreview(false);
+        }
+      });
+
+    return () => {
+      isCanceled = true;
+    };
+  }, [isAuthenticated, rangeKey, sessionToken]);
+
+  const proposalEvents = useMemo(
+    () => getProposalPreviewEvents(proposal),
+    [proposal],
+  );
+
+  if (!range) {
+    return null;
+  }
+
+  const days = Array.from({ length: range.dayCount }, (_, index) =>
+    addDays(range.startDate, index),
+  );
+  const previewEvents = [...calendarEvents, ...proposalEvents];
+  const allDayEvents = previewEvents.filter((event) => event.allDay);
+  const timedEvents = previewEvents.filter((event) => !event.allDay);
+
+  return (
+    <View
+      style={{
+        borderTopWidth: 1,
+        borderColor: "#ddd3c3",
+        backgroundColor: "#fffaf2",
+        paddingVertical: 12,
+        gap: 10,
+      }}
+    >
+      <View
+        style={{
+          paddingHorizontal: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <Text
+          style={{
+            color: "#132521",
+            fontWeight: "800",
+          }}
+        >
+          Calendar preview
+        </Text>
+        <Text
+          style={{
+            color: "#68736f",
+            fontSize: 12,
+            fontWeight: "700",
+          }}
+        >
+          {isLoadingPreview ? "Loading" : `${proposalEvents.length} proposed`}
+        </Text>
+      </View>
+
+      {previewError ? (
+        <Text
+          style={{
+            color: "#8a3a2f",
+            paddingHorizontal: 14,
+            lineHeight: 18,
+          }}
+        >
+          {previewError}
+        </Text>
+      ) : null}
+
+      {allDayEvents.length > 0 ? (
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingHorizontal: 14,
+            gap: 8,
+          }}
+        >
+          {allDayEvents.slice(0, 8).map((event) => (
+            <View
+              key={event.id}
+              style={{
+                borderRadius: 999,
+                backgroundColor:
+                  event.source === "proposal" ? "#fde7a1" : "#eef1ef",
+                borderWidth: 1,
+                borderColor:
+                  event.source === "proposal" ? "#d29d12" : "#d3d8d5",
+                paddingHorizontal: 10,
+                paddingVertical: 7,
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={{
+                  color: "#132521",
+                  fontSize: 12,
+                  fontWeight: "800",
+                }}
+              >
+                {event.title}
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+      ) : null}
+
+      <ScrollView
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: 14,
+        }}
+      >
+        <View>
+          <View style={{ flexDirection: "row" }}>
+            {days.map((day) => (
+              <View
+                key={day.toISOString()}
+                style={{
+                  width: PREVIEW_DAY_WIDTH,
+                  paddingBottom: 8,
+                  paddingRight: 8,
+                }}
+              >
+                <Text
+                  style={{
+                    color: "#132521",
+                    fontSize: 12,
+                    fontWeight: "800",
+                  }}
+                >
+                  {formatPreviewDay(day)}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              height: PREVIEW_TIMED_HEIGHT,
+            }}
+          >
+            {days.map((day) => (
+              <View
+                key={`${day.toISOString()}-body`}
+                style={{
+                  width: PREVIEW_DAY_WIDTH,
+                  height: PREVIEW_TIMED_HEIGHT,
+                  borderLeftWidth: 1,
+                  borderColor: "#e8ded0",
+                  paddingRight: 8,
+                }}
+              >
+                {timedEvents
+                  .filter(
+                    (event) =>
+                      differenceInCalendarDays(
+                        startOfDay(event.startTime),
+                        day,
+                      ) === 0,
+                  )
+                  .map((event) => (
+                    <PreviewEventBlock
+                      key={event.id}
+                      event={event}
+                    />
+                  ))}
+              </View>
+            ))}
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function PreviewEventBlock({ event }: { event: ProposalPreviewEvent }) {
+  const dayStart = startOfDay(event.startTime);
+  const previewStart = new Date(dayStart);
+  previewStart.setHours(PREVIEW_START_HOUR, 0, 0, 0);
+  const previewEnd = new Date(dayStart);
+  previewEnd.setHours(PREVIEW_END_HOUR, 0, 0, 0);
+  const visibleStart = new Date(
+    Math.max(event.startTime.getTime(), previewStart.getTime()),
+  );
+  const visibleEnd = new Date(
+    Math.min(event.endTime.getTime(), previewEnd.getTime()),
+  );
+
+  if (visibleEnd <= visibleStart) {
+    return null;
+  }
+
+  const top = Math.max(0, differenceInMinutes(visibleStart, previewStart)) *
+    (PREVIEW_HOUR_HEIGHT / 60);
+  const height = Math.max(
+    18,
+    differenceInMinutes(visibleEnd, visibleStart) *
+      (PREVIEW_HOUR_HEIGHT / 60),
+  );
+  const isProposal = event.source === "proposal";
+
+  return (
+    <View
+      style={{
+        position: "absolute",
+        left: 4,
+        right: 10,
+        top,
+        height,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: isProposal ? "#d29d12" : "#aebbb5",
+        backgroundColor: isProposal ? "#fde7a1" : "#e8efec",
+        paddingHorizontal: 6,
+        paddingVertical: 4,
+        overflow: "hidden",
+      }}
+    >
+      <Text
+        numberOfLines={2}
+        style={{
+          color: "#132521",
+          fontSize: 11,
+          fontWeight: "800",
+        }}
+      >
+        {event.title}
+      </Text>
     </View>
   );
 }
@@ -1165,6 +1488,63 @@ function getProposalOperationKey(
   return `${proposalId}-${recordId}-${operation.startTime}-${index}`;
 }
 
+function getProposalPreviewRange(proposal: ScheduleProposal) {
+  const proposalEvents = getProposalPreviewEvents(proposal);
+
+  if (proposalEvents.length === 0) {
+    return null;
+  }
+
+  const eventDays = proposalEvents
+    .flatMap((event) => [startOfDay(event.startTime), startOfDay(event.endTime)])
+    .sort((left, right) => left.getTime() - right.getTime());
+  const startDate = eventDays[0];
+  const lastDate = eventDays[eventDays.length - 1];
+
+  if (!startDate || !lastDate) {
+    return null;
+  }
+
+  const dayCount = Math.min(
+    7,
+    Math.max(1, differenceInCalendarDays(lastDate, startDate) + 1),
+  );
+
+  return {
+    startDate,
+    endDate: addDays(startDate, dayCount - 1),
+    dayCount,
+  };
+}
+
+function getProposalPreviewEvents(
+  proposal: ScheduleProposal,
+): ProposalPreviewEvent[] {
+  return proposal.operations.flatMap((operation, index) => {
+    const startTime = new Date(operation.startTime);
+    const endTime = new Date(operation.endTime);
+
+    if (
+      Number.isNaN(startTime.getTime()) ||
+      Number.isNaN(endTime.getTime()) ||
+      endTime <= startTime
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        id: `${proposal.id}:proposal:${index}`,
+        title: operation.title,
+        startTime,
+        endTime,
+        allDay: false,
+        source: "proposal" as const,
+      },
+    ];
+  });
+}
+
 function normalizeProposalConflicts(
   value: unknown,
 ): ScheduleProposal["conflictAnnotations"] {
@@ -1215,6 +1595,14 @@ function formatProposalDateTime(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatPreviewDay(value: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "numeric",
+    day: "numeric",
+  }).format(value);
 }
 
 function getProposalStatusColor(status: ScheduleProposal["status"]) {

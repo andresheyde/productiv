@@ -81,6 +81,71 @@ This project can be split into two Vercel Hobby projects:
 - Native redirects can still receive a signed session token through the callback URL for local app state.
 - Calendar requests no longer send `authId`; they use either the session cookie or the bearer session token.
 
+## Local-only workflow testing
+
+The project supports a fully local workflow loop that avoids Supabase, Google, and OpenAI:
+
+- Local Postgres runs in Docker and uses the real SQL migrations.
+- Local Google mode creates a Productiv test user and stores calendar events in memory.
+- Ollama mode sends Productiv prompts to a free local model.
+- Deterministic AI mode returns stable fixture-style responses for regression tests.
+
+Start the full local test environment:
+
+```bash
+npm run local
+```
+
+This starts local Postgres and Ollama, pulls the default model, resets the local database, and starts the web app plus API.
+
+Or run the steps separately:
+
+```bash
+npm run local:up
+npm run local:ai:pull
+```
+
+`local:ai:pull` pulls `qwen3:4b` by default. To use a lighter or stronger model:
+
+```bash
+OLLAMA_MODEL=llama3.2:3b npm run local:ai:pull
+OLLAMA_MODEL=qwen3:8b npm run local:ai:pull
+```
+
+Reset the local database and apply migrations:
+
+```bash
+npm run local:reset
+```
+
+Run the app and API locally:
+
+```bash
+npm run dev:local
+```
+
+The backend defaults in this mode are:
+
+```bash
+DATABASE_URL=postgresql://productiv:productiv@localhost:54329/productiv_local
+DIRECT_DATABASE_URL=postgresql://productiv:productiv@localhost:54329/productiv_local
+DATABASE_SSL_MODE=disable
+GOOGLE_INTEGRATION_PROVIDER=local
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:4b
+```
+
+If native Ollama is faster on your Mac, run Ollama outside Docker and keep `OLLAMA_BASE_URL=http://localhost:11434`; the backend does not care whether Ollama is Dockerized or native.
+
+Run local regression tests with deterministic AI:
+
+```bash
+npm run test:local
+```
+
+`local:reset` refuses to run against non-local hosts and refuses database names outside `productiv_local*` or `productiv_test*`.
+
 
 ## Get a fresh project
 

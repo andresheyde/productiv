@@ -3,10 +3,16 @@ import type { Request, Response } from "express";
 
 import { getSessionCredentialsFromRequest } from "../../shared/auth/session.ts";
 import { maxScheduleRangeDays } from "../../shared/config/app-config.ts";
+import { resolveAuthenticatedRequest } from "../auth/auth-session.ts";
+import {
+  getOrCreateUserCalendarPreferences,
+  patchUserCalendarPreferences,
+} from "./calendar-preferences.repository.ts";
 import {
   createGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
   getMergedCalendarEvents,
+  listGoogleCalendars,
   updateGoogleCalendarEvent,
 } from "./calendar.service.ts";
 
@@ -36,6 +42,10 @@ interface DeleteCalendarEventParams {
 
 interface DeleteCalendarEventQuery {
   sourceCalendarId?: string;
+}
+
+interface PatchCalendarSourcesBody {
+  includedCalendarIds?: unknown;
 }
 
 export async function getCalendarEvents(
@@ -72,19 +82,21 @@ export async function getCalendarEvents(
       .json({ error: "Date range must be within 7 days" });
   }
 
-  const tokens = getSessionCredentialsFromRequest(req);
+  const session = await resolveAuthenticatedRequest(req);
 
-  if (!tokens) {
+  if (!session) {
     return res
       .status(401)
       .json({ error: "Missing, invalid, or expired Google session" });
   }
 
   try {
+    const preferences = await getOrCreateUserCalendarPreferences(session.user.id);
     const mergedEvents = await getMergedCalendarEvents(
-      tokens,
+      session.tokens,
       parsedStartDate,
       parsedEndDate,
+      preferences.includedCalendarIds,
     );
     return res.json(mergedEvents);
   } catch (error) {
@@ -96,6 +108,91 @@ export async function getCalendarEvents(
 
     console.error("[Events] Failed to fetch calendar events", error);
     return res.status(500).json({ error: "Failed to fetch calendar events" });
+  }
+}
+
+export async function getCalendarSources(req: Request, res: Response) {
+  const session = await resolveAuthenticatedRequest(req);
+
+  if (!session) {
+    return res
+      .status(401)
+      .json({ error: "Missing, invalid, or expired Google session" });
+  }
+
+  try {
+    const [calendars, preferences] = await Promise.all([
+      listGoogleCalendars(session.tokens),
+      getOrCreateUserCalendarPreferences(session.user.id),
+    ]);
+    const includedIds = preferences.includedCalendarIds
+      ? new Set(preferences.includedCalendarIds)
+      : null;
+
+    return res.json({
+      calendars: calendars.map((calendar) => ({
+        ...calendar,
+        included: includedIds ? includedIds.has(calendar.id) : true,
+      })),
+      preferences,
+    });
+  } catch (error) {
+    if (isGoogleSessionError(error)) {
+      return res
+        .status(401)
+        .json({ error: "Google session expired. Connect Google again." });
+    }
+
+    console.error("[Calendars] Failed to fetch calendar sources", error);
+    return res.status(500).json({ error: "Failed to fetch calendar sources" });
+  }
+}
+
+export async function patchCalendarSources(
+  req: Request<{}, {}, PatchCalendarSourcesBody>,
+  res: Response,
+) {
+  const session = await resolveAuthenticatedRequest(req);
+
+  if (!session) {
+    return res
+      .status(401)
+      .json({ error: "Missing, invalid, or expired Google session" });
+  }
+
+  if (!("includedCalendarIds" in req.body)) {
+    return res.status(400).json({ error: "Missing includedCalendarIds" });
+  }
+
+  try {
+    const includedCalendarIds = getOptionalCalendarIds(
+      req.body.includedCalendarIds,
+    );
+    const preferences = await patchUserCalendarPreferences({
+      userId: session.user.id,
+      includedCalendarIds,
+    });
+    const calendars = await listGoogleCalendars(session.tokens);
+    const includedIds = preferences.includedCalendarIds
+      ? new Set(preferences.includedCalendarIds)
+      : null;
+
+    return res.json({
+      calendars: calendars.map((calendar) => ({
+        ...calendar,
+        included: includedIds ? includedIds.has(calendar.id) : true,
+      })),
+      preferences,
+    });
+  } catch (error) {
+    if (isGoogleSessionError(error)) {
+      return res
+        .status(401)
+        .json({ error: "Google session expired. Connect Google again." });
+    }
+
+    console.error("[Calendars] Failed to update calendar sources", error);
+    return res.status(500).json({ error: "Failed to update calendar sources" });
   }
 }
 
@@ -296,4 +393,23 @@ function getRemoteErrorStatus(error: unknown) {
   }
 
   return undefined;
+}
+
+function getOptionalCalendarIds(value: unknown): string[] | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
 }

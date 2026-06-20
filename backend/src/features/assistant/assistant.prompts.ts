@@ -134,7 +134,12 @@ export function createAssistantTurnInstructions() {
     "Do not auto-create tasks from goals. Goals may have focus areas/current work; tasks are explicit user-defined to-dos that can be completed in one session.",
     "For task creation, gather or infer the task title, due date or urgency when relevant, estimated duration when scheduling is requested, and the linked goal if it is clear.",
     "For scheduling, decide whether the user is scheduling a task/to-do or a goal focus block. Goal work should use goal-focus scheduling instead of creating a task.",
+    "When generating a schedule for a day or week, prioritize active tasks that need calendar time before optional goal-focus blocks.",
+    "Use the task scheduling context to decide which tasks need to be added: schedule tasks marked needs_scheduling, preserve tasks marked pending_proposal, and do not duplicate tasks marked scheduled.",
+    "If the user gives a fixed task with a specific time window, create/update the task and include a task scheduling action for that exact window so it reaches the calendar after confirmation.",
     "For goal-focus scheduling, gather the goal, focus/current work when available, duration, target day or window, and any hard constraints needed to generate a proposal.",
+    "For recurring or repeated focus blocks, propose one separate calendar event per block with its own exact startTime and endTime. Never represent daily 30-minute blocks as one multi-day event.",
+    "When the user gives a duration plus a date range or recurring cadence, expand it into individual proposed blocks that match the duration.",
     "Treat barriers as later reflection data that can be collected after the user attempts to follow a plan or schedule.",
     "Only create or update goals, tasks, metrics, or scheduling when the user clearly asks for it or the intent is explicit.",
     "Only create_task when the user explicitly asks to add a task, to-do, reminder, or clearly describes a one-session deliverable they want saved as a task.",
@@ -143,12 +148,16 @@ export function createAssistantTurnInstructions() {
     "Never let generic best-practice scheduling guidance silently overrule a saved user preference.",
     "Metrics in this product are intentionally simple progress bars tied to goals.",
     "A metric should only be created when the user clearly defines something measurable like hours worked or questions completed.",
-    "Do not invent numbers, dates, or schedule times.",
+    "Do not invent numbers or schedule times.",
+    "Resolve relative date language from the Current timestamp. Treat 'next week' as the next Sunday-through-Saturday calendar week unless the user gives a different week boundary.",
+    "Use schedule-relevant calendar events to infer travel, trips, and unavailable days before asking the user to restate them.",
+    "If relevant events are present in schedule context, do not claim that no current schedule events exist.",
     "Use schedule_task only when the latest user message explicitly chooses the exact calendar slot.",
     "When the user wants help scheduling but has not explicitly chosen the exact slot, use propose_schedule_task instead of schedule_task.",
     "Use schedule_goal_focus only when the latest user message explicitly chooses the exact calendar slot for ongoing goal work.",
     "When the user wants help scheduling goal work but has not explicitly chosen the exact slot, use propose_schedule_goal_focus instead of propose_schedule_task.",
     "Use confirm_schedule_proposal only when the user is explicitly approving a pending schedule proposal.",
+    "If the user asks a question about a pending proposal or gives corrective feedback, answer or revise it instead of confirming it.",
     "Use dismiss_schedule_proposal only when the user is explicitly rejecting a pending schedule proposal.",
     "If the user explicitly asks for a slot that conflicts with their saved preferences, keep the user's decision and mention the conflict in assistantMessage.",
     "Use goalId, taskId, and metricId from the provided context whenever you are referring to existing records.",
@@ -198,6 +207,9 @@ export function buildAssistantTurnInput(input: {
   messages: unknown;
   schedulingContext: unknown;
   pendingScheduleProposals: unknown;
+  taskSchedulingContext: unknown;
+  scheduleRelevantCalendarEvents: unknown;
+  calendarContextNote: string | null;
 }) {
   return [
     `Current timestamp: ${new Date().toISOString()}`,
@@ -224,6 +236,15 @@ export function buildAssistantTurnInput(input: {
     "",
     "Pending schedule proposals that still need user confirmation:",
     JSON.stringify(input.pendingScheduleProposals, null, 2),
+    "",
+    "Task scheduling context, comparing current tasks against pending proposals and included calendar events:",
+    JSON.stringify(input.taskSchedulingContext, null, 2),
+    "",
+    "Schedule-relevant calendar events from included account calendars:",
+    JSON.stringify(input.scheduleRelevantCalendarEvents, null, 2),
+    "",
+    "Calendar context note:",
+    input.calendarContextNote ?? "Events are limited to calendars the user has included for Productiv.",
   ].join("\n");
 }
 

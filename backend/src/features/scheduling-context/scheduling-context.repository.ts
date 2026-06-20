@@ -445,7 +445,7 @@ export function buildCompiledSchedulingContext(
     .map((rule) => `${rule.title}: ${rule.detail}`.trim().replace(/:$/u, ""));
 
   return {
-    workHours: context.workHours,
+    workHours: context.workHours.filter((rule) => rule.enabled),
     noScheduleWindows: context.noScheduleWindows,
     sleepWindow: context.sleepWindow,
     maxWorkEndTime: context.maxWorkEndTime,

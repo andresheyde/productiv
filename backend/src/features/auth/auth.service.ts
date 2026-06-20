@@ -1,14 +1,12 @@
 import type { Credentials } from "google-auth-library";
-import { google } from "googleapis";
 
-import { createGoogleOAuthClient } from "../../shared/clients/google-oauth-client.ts";
 import {
-  googleScopes,
   isProduction,
   nativeAppScheme,
   nativeDevelopmentSchemes,
   webAppOrigin,
 } from "../../shared/config/app-config.ts";
+import { getGoogleIntegrationProvider } from "../../shared/google/google-integration-factory.ts";
 import type { GoogleProfile } from "./auth.types.ts";
 
 type AuthState = {
@@ -21,51 +19,21 @@ export type AuthRedirectTarget = {
 };
 
 export function getGoogleAuthUrl(redirectTo?: string): string {
-  const oauth2Client = createGoogleOAuthClient();
-
-  return oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    prompt: "consent",
-    scope: googleScopes,
-    ...(redirectTo ? { state: encodeAuthState({ redirectTo }) } : {}),
+  return getGoogleIntegrationProvider().getAuthUrl({
+    ...(redirectTo ? { redirectTo, state: encodeAuthState({ redirectTo }) } : {}),
   });
 }
 
 export async function exchangeCodeForTokens(
   code: string,
 ): Promise<Credentials> {
-  console.log("[Auth] Exchanging authorization code for tokens...");
-
-  const oauth2Client = createGoogleOAuthClient();
-  const tokenResponse = await oauth2Client.getToken(code);
-
-  console.log("[Auth] Successfully obtained credentials");
-  return tokenResponse.tokens;
+  return getGoogleIntegrationProvider().exchangeCodeForTokens(code);
 }
 
 export async function fetchGoogleProfileFromTokens(
   tokens: Credentials,
 ): Promise<GoogleProfile> {
-  const oauth2Client = createGoogleOAuthClient();
-  oauth2Client.setCredentials(tokens);
-
-  const oauth2 = google.oauth2({
-    version: "v2",
-    auth: oauth2Client,
-  });
-  const response = await oauth2.userinfo.get();
-  const data = response.data;
-
-  if (!data.id) {
-    throw new Error("Google user profile response did not include an id.");
-  }
-
-  return {
-    googleSubject: data.id,
-    email: data.email ?? null,
-    fullName: data.name ?? null,
-    avatarUrl: data.picture ?? null,
-  };
+  return getGoogleIntegrationProvider().fetchProfileFromTokens(tokens);
 }
 
 export function getRedirectToFromAuthState(state: string | undefined) {

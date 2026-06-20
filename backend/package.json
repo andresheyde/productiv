@@ -7,7 +7,9 @@
     "dev:watch": "node --watch src/server.ts",
     "db:migrate": "node src/scripts/db-migrate.ts",
     "db:ping": "node src/scripts/db-ping.ts",
+    "db:reset:local": "node src/scripts/db-reset-local.ts",
     "test": "node --test \"src/**/*.test.ts\"",
+    "test:local": "node --test \"src/**/*.integration.test.ts\"",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/features/assistant/assistant.prompts.ts' --test-coverage-include='src/features/planning/planning.prompts.ts' --test-coverage-include='src/features/planning/planning.service.ts' --test-coverage-include='src/features/planning/planning.types.ts' --test-coverage-include='src/features/planning/planning.validation.ts' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

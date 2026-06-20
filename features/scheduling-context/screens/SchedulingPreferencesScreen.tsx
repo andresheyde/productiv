@@ -11,6 +11,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/features/auth/AuthProvider";
+import {
+  fetchGoogleCalendarSources,
+  updateGoogleCalendarSources,
+  type GoogleCalendarSource,
+} from "@/features/calendar/api/googleCalendarApi";
 import type { DerivedSchedulingSuggestion } from "@/features/scheduling-context/types";
 import WorkspaceAuthGate from "@/features/workspace/components/WorkspaceAuthGate";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
@@ -23,7 +28,7 @@ const EXAMPLE_CONTEXT = [
 ].join("\n");
 
 export default function SchedulingPreferencesScreen() {
-  const { isAuthReady, isAuthenticated } = useAuth();
+  const { isAuthReady, isAuthenticated, sessionToken } = useAuth();
   const {
     isLoading,
     schedulingContext,
@@ -35,6 +40,13 @@ export default function SchedulingPreferencesScreen() {
   const [draftAdditionalNotes, setDraftAdditionalNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [busySuggestionId, setBusySuggestionId] = useState<string | null>(null);
+  const [calendarSources, setCalendarSources] = useState<GoogleCalendarSource[]>(
+    [],
+  );
+  const [busyCalendarSourceId, setBusyCalendarSourceId] = useState<string | null>(
+    null,
+  );
+  const [isLoadingCalendarSources, setIsLoadingCalendarSources] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,6 +56,41 @@ export default function SchedulingPreferencesScreen() {
 
     setDraftAdditionalNotes(schedulingContext.additionalNotes);
   }, [schedulingContext]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setCalendarSources([]);
+      return;
+    }
+
+    let isCanceled = false;
+    setIsLoadingCalendarSources(true);
+
+    fetchGoogleCalendarSources(sessionToken)
+      .then((sources) => {
+        if (!isCanceled) {
+          setCalendarSources(sources);
+        }
+      })
+      .catch((error) => {
+        if (!isCanceled) {
+          setScreenError(
+            error instanceof Error
+              ? error.message
+              : "Failed to load calendar sources.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!isCanceled) {
+          setIsLoadingCalendarSources(false);
+        }
+      });
+
+    return () => {
+      isCanceled = true;
+    };
+  }, [isAuthenticated, sessionToken]);
 
   const canSave = useMemo(
     () => !!schedulingContext && !isSaving,
@@ -121,6 +168,37 @@ export default function SchedulingPreferencesScreen() {
       );
     } finally {
       setBusySuggestionId(null);
+    }
+  }
+
+  async function handleToggleCalendarSource(source: GoogleCalendarSource) {
+    setScreenError(null);
+    setBusyCalendarSourceId(source.id);
+
+    const nextSources = calendarSources.map((calendarSource) =>
+      calendarSource.id === source.id
+        ? { ...calendarSource, included: !calendarSource.included }
+        : calendarSource,
+    );
+    setCalendarSources(nextSources);
+
+    try {
+      const updatedSources = await updateGoogleCalendarSources({
+        includedCalendarIds: nextSources
+          .filter((calendarSource) => calendarSource.included)
+          .map((calendarSource) => calendarSource.id),
+        sessionToken,
+      });
+      setCalendarSources(updatedSources);
+    } catch (error) {
+      setCalendarSources(calendarSources);
+      setScreenError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update calendar sources.",
+      );
+    } finally {
+      setBusyCalendarSourceId(null);
     }
   }
 
@@ -230,6 +308,37 @@ export default function SchedulingPreferencesScreen() {
               ? schedulingContext.compiledSummary
               : "No compiled scheduling context yet. Add some notes above and save to give Productiv durable preferences to work from."}
           </Text>
+        </SectionCard>
+
+        <SectionCard
+          title="Calendar Sources"
+          description="Choose which Google calendars Productiv should show and pass into scheduling conversations."
+        >
+          {isLoadingCalendarSources ? (
+            <ActivityIndicator color="#123a35" />
+          ) : calendarSources.length === 0 ? (
+            <Text
+              style={{
+                color: "#5a6762",
+                lineHeight: 20,
+              }}
+            >
+              No Google calendars are available from the connected account.
+            </Text>
+          ) : (
+            <View style={{ gap: 10 }}>
+              {calendarSources.map((source) => (
+                <CalendarSourceRow
+                  key={source.id}
+                  source={source}
+                  isBusy={busyCalendarSourceId === source.id}
+                  onToggle={() => {
+                    void handleToggleCalendarSource(source);
+                  }}
+                />
+              ))}
+            </View>
+          )}
         </SectionCard>
 
         <SectionCard
@@ -458,6 +567,82 @@ function SuggestionCard({
         </Pressable>
       </View>
     </View>
+  );
+}
+
+function CalendarSourceRow({
+  isBusy,
+  onToggle,
+  source,
+}: {
+  isBusy: boolean;
+  onToggle: () => void;
+  source: GoogleCalendarSource;
+}) {
+  return (
+    <Pressable
+      onPress={onToggle}
+      disabled={isBusy}
+      style={{
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: source.included ? "#a8c9bf" : "#e0d4c3",
+        backgroundColor: source.included ? "#eef7f3" : "#f7f2e8",
+        padding: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+      }}
+    >
+      <View
+        style={{
+          width: 12,
+          height: 12,
+          borderRadius: 999,
+          backgroundColor: source.backgroundColor ?? "#1f6f78",
+        }}
+      />
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text
+          style={{
+            color: "#132521",
+            fontWeight: "700",
+          }}
+          numberOfLines={1}
+        >
+          {source.summary}
+        </Text>
+        <Text
+          style={{
+            color: "#68736f",
+            fontSize: 12,
+            fontWeight: "700",
+          }}
+        >
+          {source.primary ? "Primary calendar" : source.accessRole ?? "Calendar"}
+        </Text>
+      </View>
+      <View
+        style={{
+          borderRadius: 999,
+          backgroundColor: source.included ? "#123a35" : "#d8cec0",
+          paddingHorizontal: 10,
+          paddingVertical: 7,
+          minWidth: 82,
+          alignItems: "center",
+        }}
+      >
+        <Text
+          style={{
+            color: source.included ? "#f4f0e8" : "#31413c",
+            fontSize: 12,
+            fontWeight: "800",
+          }}
+        >
+          {isBusy ? "Saving" : source.included ? "Included" : "Excluded"}
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
