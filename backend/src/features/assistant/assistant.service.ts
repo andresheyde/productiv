@@ -58,15 +58,19 @@ import type {
 import {
   addMetricProgressEntry,
   appendAssistantMessage,
+  createAssistantThread,
   createGoal,
   createGoalMetric,
   createTask,
   createWorkLog,
+  deleteAssistantThread,
   ensureGoalMetricsForGoal,
+  getAssistantThreadById,
   getGoalMetricById,
   getOrCreateDefaultAssistantThread,
   getWorkspaceExecutor,
   listAssistantMessages,
+  listAssistantThreads,
   listGoalMetrics,
   listGoals,
   listTasks,
@@ -83,6 +87,12 @@ import type {
   GoalRecord,
   TaskRecord,
 } from "../workspace/workspace.types.ts";
+
+export class AssistantThreadNotFoundError extends Error {
+  constructor() {
+    super("Assistant thread not found.");
+  }
+}
 
 type PlanningArtifact = {
   generatedPlan?: unknown;
@@ -143,8 +153,16 @@ type TaskSchedulingContextItem = {
 
 export async function getAssistantThreadForUser(
   userId: string,
+  threadId?: string | null,
 ): Promise<AssistantThreadResponse> {
-  const thread = await getOrCreateDefaultAssistantThread(userId);
+  const thread = threadId
+    ? await getAssistantThreadById(userId, threadId)
+    : await getOrCreateDefaultAssistantThread(userId);
+
+  if (!thread) {
+    throw new AssistantThreadNotFoundError();
+  }
+
   const messages = await listAssistantMessages(thread.id);
 
   return {
@@ -153,13 +171,39 @@ export async function getAssistantThreadForUser(
   };
 }
 
+export async function listAssistantThreadsForUser(userId: string) {
+  return listAssistantThreads(userId);
+}
+
+export async function createAssistantThreadForUser(
+  userId: string,
+): Promise<AssistantThreadResponse> {
+  const thread = await createAssistantThread({ userId });
+
+  return {
+    thread,
+    messages: [],
+  };
+}
+
+export async function deleteAssistantThreadForUser(
+  userId: string,
+  threadId: string,
+) {
+  return deleteAssistantThread(userId, threadId);
+}
+
 export async function runAssistantTurn(input: {
   user: AuthenticatedUser;
   tokens: Credentials;
   message: string;
   mode?: AssistantTurnMode;
+  threadId?: string | null;
 }): Promise<AssistantTurnResponse> {
-  const thread = await getOrCreateDefaultAssistantThread(input.user.id);
+  const thread = await resolveAssistantThreadForTurn(
+    input.user.id,
+    input.threadId,
+  );
   const trimmedMessage = input.message.trim();
 
   if (!trimmedMessage) {
@@ -175,6 +219,7 @@ export async function runAssistantTurn(input: {
         : "chat",
     content: trimmedMessage,
   });
+  await maybeSetThreadTitleFromFirstMessage(thread, trimmedMessage);
 
   const messages = await listAssistantMessages(thread.id);
   const goals = await listGoals(input.user.id);
@@ -258,6 +303,51 @@ export async function runAssistantTurn(input: {
   });
 }
 
+async function resolveAssistantThreadForTurn(
+  userId: string,
+  threadId: string | null | undefined,
+) {
+  if (!threadId) {
+    return getOrCreateDefaultAssistantThread(userId);
+  }
+
+  const thread = await getAssistantThreadById(userId, threadId);
+
+  if (!thread) {
+    throw new AssistantThreadNotFoundError();
+  }
+
+  return thread;
+}
+
+async function maybeSetThreadTitleFromFirstMessage(
+  thread: Awaited<ReturnType<typeof getOrCreateDefaultAssistantThread>>,
+  message: string,
+) {
+  if (thread.title !== "New chat" && thread.title !== "Productiv Workspace") {
+    return;
+  }
+
+  await updateAssistantThreadState({
+    threadId: thread.id,
+    title: createThreadTitle(message),
+  });
+}
+
+function createThreadTitle(message: string) {
+  const compactTitle = message.replace(/\s+/g, " ").trim();
+
+  if (compactTitle.length === 0) {
+    return "New chat";
+  }
+
+  if (compactTitle.length <= 48) {
+    return compactTitle;
+  }
+
+  return `${compactTitle.slice(0, 45).trim()}...`;
+}
+
 async function handleScheduleReflectionTurn(input: {
   threadId: string;
   userId: string;
@@ -320,7 +410,7 @@ async function handleScheduleReflectionTurn(input: {
       await client.query("commit");
 
       return {
-        ...(await getAssistantThreadForUser(input.userId)),
+        ...(await getAssistantThreadForUser(input.userId, input.threadId)),
         assistantMessage: modelResponse.assistantMessage,
         navigationHint: modelResponse.navigationHint,
         sideEffects,
@@ -388,7 +478,7 @@ async function handleScheduleReflectionTurn(input: {
     await client.query("commit");
 
     return {
-      ...(await getAssistantThreadForUser(input.userId)),
+      ...(await getAssistantThreadForUser(input.userId, input.threadId)),
       assistantMessage,
       navigationHint: modelResponse.navigationHint ?? "calendar",
       sideEffects,
@@ -520,7 +610,7 @@ async function handlePlanningTurn(input: {
       await client.query("commit");
 
       return {
-        ...(await getAssistantThreadForUser(input.userId)),
+        ...(await getAssistantThreadForUser(input.userId, input.threadId)),
         assistantMessage,
         navigationHint: "goals",
         sideEffects,
@@ -572,7 +662,7 @@ async function handlePlanningTurn(input: {
     await client.query("commit");
 
     return {
-      ...(await getAssistantThreadForUser(input.userId)),
+      ...(await getAssistantThreadForUser(input.userId, input.threadId)),
       assistantMessage: result.assistantMessage,
       navigationHint: "chat",
       sideEffects,
@@ -740,7 +830,7 @@ async function handleGeneralAssistantTurn(input: {
     await client.query("commit");
 
     return {
-      ...(await getAssistantThreadForUser(input.userId)),
+      ...(await getAssistantThreadForUser(input.userId, input.threadId)),
       assistantMessage,
       navigationHint: modelResponse.navigationHint,
       sideEffects,
@@ -868,7 +958,7 @@ async function handleWorkLogTurn(input: {
     await client.query("commit");
 
     return {
-      ...(await getAssistantThreadForUser(input.userId)),
+      ...(await getAssistantThreadForUser(input.userId, input.threadId)),
       assistantMessage: modelResponse.assistantMessage,
       navigationHint: modelResponse.navigationHint,
       sideEffects,

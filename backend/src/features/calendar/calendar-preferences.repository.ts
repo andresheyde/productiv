@@ -19,8 +19,28 @@ export type UserCalendarPreferencesRecord = {
   updatedAt: string;
 };
 
+export const defaultUserCalendarPreferences: UserCalendarPreferencesRecord = {
+  includedCalendarIds: null,
+  updatedAt: new Date(0).toISOString(),
+};
+
 export function getCalendarPreferencesExecutor(): DatabaseExecutor {
   return getRuntimePool();
+}
+
+export async function getUserCalendarPreferencesOrDefault(
+  userId: string,
+  db: DatabaseExecutor = getCalendarPreferencesExecutor(),
+): Promise<UserCalendarPreferencesRecord> {
+  try {
+    return await getOrCreateUserCalendarPreferences(userId, db);
+  } catch (error) {
+    if (isCalendarPreferencesStorageUnavailable(error)) {
+      return defaultUserCalendarPreferences;
+    }
+
+    throw error;
+  }
 }
 
 export async function getOrCreateUserCalendarPreferences(
@@ -97,8 +117,24 @@ export async function getIncludedCalendarIdsForUser(
   userId: string,
   db: DatabaseExecutor = getCalendarPreferencesExecutor(),
 ): Promise<string[] | null> {
-  const preferences = await getOrCreateUserCalendarPreferences(userId, db);
+  const preferences = await getUserCalendarPreferencesOrDefault(userId, db);
   return preferences.includedCalendarIds;
+}
+
+export function isCalendarPreferencesStorageUnavailable(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "42P01"
+  ) {
+    return true;
+  }
+
+  return (
+    error instanceof Error &&
+    /relation "user_calendar_preferences" does not exist/u.test(error.message)
+  );
 }
 
 function mapUserCalendarPreferences(

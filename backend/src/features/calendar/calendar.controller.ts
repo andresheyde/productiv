@@ -5,7 +5,8 @@ import { getSessionCredentialsFromRequest } from "../../shared/auth/session.ts";
 import { maxScheduleRangeDays } from "../../shared/config/app-config.ts";
 import { resolveAuthenticatedRequest } from "../auth/auth-session.ts";
 import {
-  getOrCreateUserCalendarPreferences,
+  getIncludedCalendarIdsForUser,
+  getUserCalendarPreferencesOrDefault,
   patchUserCalendarPreferences,
 } from "./calendar-preferences.repository.ts";
 import {
@@ -91,12 +92,14 @@ export async function getCalendarEvents(
   }
 
   try {
-    const preferences = await getOrCreateUserCalendarPreferences(session.user.id);
+    const includedCalendarIds = await getIncludedCalendarIdsForUser(
+      session.user.id,
+    );
     const mergedEvents = await getMergedCalendarEvents(
       session.tokens,
       parsedStartDate,
       parsedEndDate,
-      preferences.includedCalendarIds,
+      includedCalendarIds,
     );
     return res.json(mergedEvents);
   } catch (error) {
@@ -123,7 +126,7 @@ export async function getCalendarSources(req: Request, res: Response) {
   try {
     const [calendars, preferences] = await Promise.all([
       listGoogleCalendars(session.tokens),
-      getOrCreateUserCalendarPreferences(session.user.id),
+      getUserCalendarPreferencesOrDefault(session.user.id),
     ]);
     const includedIds = preferences.includedCalendarIds
       ? new Set(preferences.includedCalendarIds)

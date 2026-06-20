@@ -5,11 +5,15 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import {
+  createAssistantThread as createAssistantThreadRequest,
+  deleteAssistantThread as deleteAssistantThreadRequest,
   fetchAssistantThread,
+  fetchAssistantThreads,
   sendAssistantTurn as sendAssistantTurnRequest,
 } from "@/features/assistant/api/assistantApi";
 import type {
@@ -55,6 +59,9 @@ type WorkspaceContextValue = {
     deltaValue: number;
     note?: string | null;
   }) => Promise<void>;
+  activeThread: AssistantThread | null;
+  createThread: () => Promise<void>;
+  deleteThread: (threadId: string) => Promise<void>;
   errorMessage: string | null;
   goals: Goal[];
   isLoading: boolean;
@@ -68,8 +75,10 @@ type WorkspaceContextValue = {
     message: string;
     mode?: AssistantTurnMode;
   }) => Promise<boolean>;
+  selectThread: (threadId: string) => Promise<void>;
   tasks: Task[];
   thread: AssistantThread | null;
+  threads: AssistantThread[];
   acceptSchedulingSuggestion: (suggestionId: string) => Promise<void>;
   dismissSchedulingSuggestion: (suggestionId: string) => Promise<void>;
   updateSchedulingContext: (input: UserSchedulingContextUpdate) => Promise<void>;
@@ -112,6 +121,8 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 export function WorkspaceProvider({ children }: PropsWithChildren) {
   const { isAuthReady, isAuthenticated, sessionToken } = useAuth();
   const [thread, setThread] = useState<AssistantThread | null>(null);
+  const [threads, setThreads] = useState<AssistantThread[]>([]);
+  const activeThreadIdRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -126,9 +137,15 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
+  const setActiveThreadSelection = useCallback((threadId: string | null) => {
+    activeThreadIdRef.current = threadId;
+  }, []);
+
   const refreshWorkspace = useCallback(async () => {
     if (!isAuthenticated) {
       setThread(null);
+      setThreads([]);
+      setActiveThreadSelection(null);
       setMessages([]);
       setGoals([]);
       setTasks([]);
@@ -145,7 +162,7 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
 
     try {
       const [
-        threadResponse,
+        threadsResponse,
         nextGoals,
         nextTasks,
         nextMetrics,
@@ -154,7 +171,7 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
         nextSchedulingSuggestions,
       ] =
         await Promise.all([
-          fetchAssistantThread(sessionToken),
+          fetchAssistantThreads(sessionToken),
           fetchGoals(sessionToken),
           fetchTasks(sessionToken),
           fetchMetrics(sessionToken),
@@ -162,9 +179,23 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
           fetchUserSchedulingContext(sessionToken),
           fetchSchedulingSuggestions(sessionToken),
         ]);
+      const nextThreads = threadsResponse.threads;
+      const preferredThreadId = activeThreadIdRef.current;
+      const selectedThreadId =
+        nextThreads.find((nextThread) => nextThread.id === preferredThreadId)?.id ??
+        nextThreads[0]?.id ??
+        null;
+      const threadResponse = selectedThreadId
+        ? await fetchAssistantThread({
+            threadId: selectedThreadId,
+            sessionToken,
+          })
+        : null;
 
-      setThread(threadResponse.thread);
-      setMessages(threadResponse.messages);
+      setThreads(nextThreads);
+      setThread(threadResponse?.thread ?? null);
+      setActiveThreadSelection(threadResponse?.thread.id ?? null);
+      setMessages(threadResponse?.messages ?? []);
       setGoals(nextGoals);
       setTasks(nextTasks);
       setMetrics(nextMetrics);
@@ -180,7 +211,7 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, sessionToken]);
+  }, [isAuthenticated, sessionToken, setActiveThreadSelection]);
 
   useEffect(() => {
     if (!isAuthReady) {
@@ -220,10 +251,15 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
         const response = await sendAssistantTurnRequest({
           message: input.message,
           mode: input.mode,
+          threadId: activeThreadIdRef.current,
           sessionToken,
         });
 
         setThread(response.thread);
+        setThreads((previousThreads) =>
+          upsertRecords(previousThreads, [response.thread], true),
+        );
+        setActiveThreadSelection(response.thread.id);
         setMessages(response.messages);
         setGoals((previousGoals) =>
           upsertRecords(previousGoals, response.sideEffects.goals),
@@ -259,7 +295,97 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
         setIsSendingMessage(false);
       }
     },
-    [isAuthenticated, sessionToken],
+    [isAuthenticated, sessionToken, setActiveThreadSelection],
+  );
+
+  const selectThread = useCallback(
+    async (threadId: string) => {
+      if (!isAuthenticated) {
+        return;
+      }
+
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const response = await fetchAssistantThread({
+          threadId,
+          sessionToken,
+        });
+
+        setThread(response.thread);
+        setThreads((previousThreads) =>
+          upsertRecords(previousThreads, [response.thread], true),
+        );
+        setActiveThreadSelection(response.thread.id);
+        setMessages(response.messages);
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Failed to load assistant thread.",
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [isAuthenticated, sessionToken, setActiveThreadSelection],
+  );
+
+  const createThread = useCallback(async () => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await createAssistantThreadRequest(sessionToken);
+
+      setThread(response.thread);
+      setThreads((previousThreads) =>
+        upsertRecords(previousThreads, [response.thread], true),
+      );
+      setActiveThreadSelection(response.thread.id);
+      setMessages(response.messages);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to create assistant thread.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, sessionToken, setActiveThreadSelection]);
+
+  const deleteThread = useCallback(
+    async (threadId: string) => {
+      if (!isAuthenticated) {
+        return;
+      }
+
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      try {
+        await deleteAssistantThreadRequest({
+          threadId,
+          sessionToken,
+        });
+        await refreshWorkspace();
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Failed to delete assistant thread.",
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [isAuthenticated, refreshWorkspace, sessionToken],
   );
 
   const updateGoal = useCallback(
@@ -390,6 +516,9 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
     () => ({
       addMetricEntry,
       acceptSchedulingSuggestion,
+      activeThread: thread,
+      createThread,
+      deleteThread,
       dismissSchedulingSuggestion,
       errorMessage,
       goals,
@@ -401,8 +530,10 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       schedulingContext,
       schedulingSuggestions,
       sendAssistantTurn,
+      selectThread,
       tasks,
       thread,
+      threads,
       updateSchedulingContext,
       updateGoal,
       updateMetric,
@@ -412,6 +543,8 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
     [
       addMetricEntry,
       acceptSchedulingSuggestion,
+      createThread,
+      deleteThread,
       dismissSchedulingSuggestion,
       errorMessage,
       goals,
@@ -423,8 +556,10 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       schedulingContext,
       schedulingSuggestions,
       sendAssistantTurn,
+      selectThread,
       tasks,
       thread,
+      threads,
       updateSchedulingContext,
       updateGoal,
       updateMetric,

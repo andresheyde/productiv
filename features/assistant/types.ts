@@ -93,6 +93,10 @@ export type AssistantThreadResponse = {
   messages: AssistantMessage[];
 };
 
+export type AssistantThreadsResponse = {
+  threads: AssistantThread[];
+};
+
 export type AssistantTurnResponse = AssistantThreadResponse & {
   assistantMessage: string;
   navigationHint: AssistantNavigationHint;

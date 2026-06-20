@@ -68,14 +68,22 @@ export default function AssistantHomeScreen() {
   const pathname = usePathname();
   const { isAuthReady, isAuthenticated, refreshAuthState } = useAuth();
   const {
+    activeThread,
+    createThread,
+    deleteThread,
     errorMessage,
     isLoading,
     isSendingMessage,
     messages,
+    selectThread,
     sendAssistantTurn,
+    threads,
   } = useWorkspace();
   const [composerValue, setComposerValue] = useState("");
   const [composerMode, setComposerMode] = useState<AssistantTurnMode>("chat");
+  const [deleteConfirmThreadId, setDeleteConfirmThreadId] = useState<string | null>(
+    null,
+  );
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [proposalFeedbackDrafts, setProposalFeedbackDrafts] = useState<
@@ -167,6 +175,38 @@ export default function AssistantHomeScreen() {
     setComposerValue((currentValue) =>
       getNextQuickActionComposerValue(currentValue, action),
     );
+  }
+
+  async function handleCreateThread() {
+    if (isLoading || isSendingMessage) {
+      return;
+    }
+
+    setDeleteConfirmThreadId(null);
+    await createThread();
+  }
+
+  async function handleSelectThread(threadId: string) {
+    if (threadId === activeThread?.id || isLoading || isSendingMessage) {
+      return;
+    }
+
+    setDeleteConfirmThreadId(null);
+    await selectThread(threadId);
+  }
+
+  async function handleDeleteActiveThread() {
+    if (!activeThread || isLoading || isSendingMessage) {
+      return;
+    }
+
+    if (deleteConfirmThreadId !== activeThread.id) {
+      setDeleteConfirmThreadId(activeThread.id);
+      return;
+    }
+
+    setDeleteConfirmThreadId(null);
+    await deleteThread(activeThread.id);
   }
 
   async function handleProposalDecision(
@@ -290,6 +330,153 @@ export default function AssistantHomeScreen() {
                 </Text>
               </View>
             </View>
+
+            {isAuthenticated ? (
+              <View style={{ gap: 10 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#31413c",
+                      fontSize: 12,
+                      fontWeight: "800",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Chats
+                  </Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      gap: 8,
+                    }}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        void handleCreateThread();
+                      }}
+                      disabled={isLoading || isSendingMessage}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 9,
+                        borderRadius: 14,
+                        backgroundColor:
+                          isLoading || isSendingMessage ? "#d6d0c6" : "#123a35",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "#f4f0e8",
+                          fontWeight: "800",
+                        }}
+                      >
+                        New chat
+                      </Text>
+                    </Pressable>
+                    {activeThread ? (
+                      <Pressable
+                        onPress={() => {
+                          void handleDeleteActiveThread();
+                        }}
+                        disabled={isLoading || isSendingMessage}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 9,
+                          borderRadius: 14,
+                          backgroundColor:
+                            deleteConfirmThreadId === activeThread.id
+                              ? "#f5c8c1"
+                              : "#efe9dd",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color:
+                              deleteConfirmThreadId === activeThread.id
+                                ? "#7f2d24"
+                                : "#31413c",
+                            fontWeight: "800",
+                          }}
+                        >
+                          {deleteConfirmThreadId === activeThread.id
+                            ? "Confirm delete"
+                            : "Delete chat"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{
+                    gap: 8,
+                    paddingRight: 4,
+                  }}
+                >
+                  {threads.length === 0 ? (
+                    <Text
+                      style={{
+                        color: "#5a6762",
+                        lineHeight: 20,
+                      }}
+                    >
+                      Start a new chat or send a message to create one.
+                    </Text>
+                  ) : null}
+                  {threads.map((threadItem) => {
+                    const isActiveThread = threadItem.id === activeThread?.id;
+
+                    return (
+                      <Pressable
+                        key={threadItem.id}
+                        onPress={() => {
+                          void handleSelectThread(threadItem.id);
+                        }}
+                        disabled={isLoading || isSendingMessage}
+                        style={{
+                          width: 190,
+                          minHeight: 70,
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: isActiveThread ? "#123a35" : "#d8cfbf",
+                          backgroundColor: isActiveThread ? "#d7e7e1" : "#f6f1e8",
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          gap: 4,
+                        }}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: "#132521",
+                            fontWeight: "800",
+                          }}
+                        >
+                          {threadItem.title}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: "#5a6762",
+                            fontSize: 12,
+                          }}
+                        >
+                          {formatThreadUpdatedAt(threadItem.updatedAt)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
 
             <ScrollView
               horizontal
@@ -639,6 +826,19 @@ function getNextQuickActionComposerValue(
   }
 
   return currentValue.trim().length > 0 ? currentValue : action.prompt;
+}
+
+function formatThreadUpdatedAt(value: string) {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Recent chat";
+  }
+
+  return `Updated ${parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })}`;
 }
 
 function AssistantChatMessage({

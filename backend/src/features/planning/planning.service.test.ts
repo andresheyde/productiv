@@ -249,6 +249,153 @@ test("runPlanningTurn breaks repeated activity clarification loops from the mode
   ]);
 });
 
+test("runPlanningTurn ignores frustrated repetition when hydrating a draft", async () => {
+  const currentDraft = {
+    ...createEmptyDraftPlanningState(),
+    direction: ["Apply to roles"],
+    mediumTermGoal: "Secure a software developer job offer",
+  };
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "What should we clarify next?",
+      draftPlanningState: currentDraft,
+      status: "needs_clarification",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [
+      {
+        role: "user",
+        content: "I want to get a software developer job.",
+      },
+      {
+        role: "user",
+        content: "apply to roles",
+      },
+      {
+        role: "user",
+        content: "I just told you those applications.",
+      },
+      {
+        role: "user",
+        content: "Ok.",
+      },
+    ],
+    currentDraftPlanningState: currentDraft,
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.equal(result.status, "needs_clarification");
+  assert.deepEqual(result.draftPlanningState.direction, ["Apply to roles"]);
+  assert.equal(
+    result.draftPlanningState.mediumTermGoal,
+    "Secure a software developer job offer",
+  );
+});
+
+test("runPlanningTurn handles a trackable draft with no user messages", async () => {
+  const currentDraft = {
+    ...createEmptyDraftPlanningState(),
+    direction: ["Training"],
+    mediumTermGoal: "get in better shape",
+  };
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "What should we clarify next?",
+      draftPlanningState: currentDraft,
+      status: "needs_clarification",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [],
+    currentDraftPlanningState: currentDraft,
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.equal(result.status, "needs_clarification");
+  assert.equal(result.generatedPlan, null);
+  assert.deepEqual(result.draftPlanningState.direction, ["Training"]);
+  assert.equal(result.draftPlanningState.mediumTermGoal, "get in better shape");
+});
+
+test("runPlanningTurn preserves direction confidence when only the goal is inferred", async () => {
+  const emptyDraft = createEmptyDraftPlanningState();
+  const currentDraft = {
+    ...emptyDraft,
+    confidenceFlags: {
+      ...emptyDraft.confidenceFlags,
+      direction: "high" as const,
+    },
+    direction: ["Apply to roles"],
+    mediumTermGoal: "get in better shape",
+  };
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "What should we clarify next?",
+      draftPlanningState: currentDraft,
+      status: "needs_clarification",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [
+      {
+        role: "user",
+        content: "I want a software developer job.",
+      },
+    ],
+    currentDraftPlanningState: currentDraft,
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.equal(result.status, "needs_clarification");
+  assert.deepEqual(result.draftPlanningState.direction, ["Apply to roles"]);
+  assert.equal(
+    result.draftPlanningState.mediumTermGoal,
+    "a software developer job.",
+  );
+  assert.equal(result.draftPlanningState.confidenceFlags.direction, "high");
+});
+
+test("runPlanningTurn keeps the pending question when only activities are inferred", async () => {
+  const currentDraft = {
+    ...createEmptyDraftPlanningState(),
+    nextBestQuestion: "What outcome should this support?",
+  };
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "What outcome should this support?",
+      draftPlanningState: currentDraft,
+      status: "needs_clarification",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [
+      {
+        role: "user",
+        content: "apply to roles",
+      },
+    ],
+    currentDraftPlanningState: currentDraft,
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.equal(result.status, "needs_clarification");
+  assert.deepEqual(result.draftPlanningState.direction, ["Apply to roles"]);
+  assert.equal(result.draftPlanningState.mediumTermGoal, null);
+  assert.equal(
+    result.draftPlanningState.nextBestQuestion,
+    "What outcome should this support?",
+  );
+});
+
 test("runPlanningTurn keeps useful model clarifications instead of forcing a gated flow", async () => {
   const completeDraft = {
     ...createEmptyDraftPlanningState(),

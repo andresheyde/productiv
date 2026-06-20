@@ -115,6 +115,30 @@ export function getWorkspaceExecutor(): DatabaseExecutor {
   return getRuntimePool();
 }
 
+export async function listAssistantThreads(
+  userId: string,
+  db: DatabaseExecutor = getWorkspaceExecutor(),
+) {
+  const result = await db.query<AssistantThreadRow>(
+    `
+      select
+        id,
+        title,
+        current_intent,
+        latest_context_summary,
+        latest_artifact,
+        created_at,
+        updated_at
+      from assistant_threads
+      where user_id = $1
+      order by updated_at desc, created_at desc
+    `,
+    [userId],
+  );
+
+  return result.rows.map(mapAssistantThread);
+}
+
 export async function getOrCreateDefaultAssistantThread(
   userId: string,
   db: DatabaseExecutor = getWorkspaceExecutor(),
@@ -164,6 +188,80 @@ export async function getOrCreateDefaultAssistantThread(
   );
 
   return mapAssistantThread(created.rows[0]);
+}
+
+export async function createAssistantThread(
+  input: {
+    userId: string;
+    title?: string | undefined;
+  },
+  db: DatabaseExecutor = getWorkspaceExecutor(),
+) {
+  const result = await db.query<AssistantThreadRow>(
+    `
+      insert into assistant_threads (
+        user_id,
+        title,
+        current_intent,
+        latest_context_summary,
+        latest_artifact
+      )
+      values ($1, $2, 'workspace_assistant', '', '{}'::jsonb)
+      returning
+        id,
+        title,
+        current_intent,
+        latest_context_summary,
+        latest_artifact,
+        created_at,
+        updated_at
+    `,
+    [input.userId, input.title ?? "New chat"],
+  );
+
+  return mapAssistantThread(result.rows[0]);
+}
+
+export async function getAssistantThreadById(
+  userId: string,
+  threadId: string,
+  db: DatabaseExecutor = getWorkspaceExecutor(),
+) {
+  const result = await db.query<AssistantThreadRow>(
+    `
+      select
+        id,
+        title,
+        current_intent,
+        latest_context_summary,
+        latest_artifact,
+        created_at,
+        updated_at
+      from assistant_threads
+      where user_id = $1 and id = $2
+      limit 1
+    `,
+    [userId, threadId],
+  );
+
+  return result.rows[0] ? mapAssistantThread(result.rows[0]) : null;
+}
+
+export async function deleteAssistantThread(
+  userId: string,
+  threadId: string,
+  db: DatabaseExecutor = getWorkspaceExecutor(),
+) {
+  const result = await db.query<{ id: string }>(
+    `
+      delete from assistant_threads
+      where user_id = $1 and id = $2
+      returning id
+    `,
+    [userId, threadId],
+  );
+
+  return Boolean(result.rows[0]);
 }
 
 export async function listAssistantMessages(
@@ -229,6 +327,7 @@ export async function appendAssistantMessage(
 export async function updateAssistantThreadState(
   input: {
     threadId: string;
+    title?: string | undefined;
     currentIntent?: string | null | undefined;
     latestContextSummary?: string | undefined;
     latestArtifact?: Record<string, unknown> | undefined;
@@ -237,6 +336,11 @@ export async function updateAssistantThreadState(
 ) {
   const updates: string[] = [];
   const values: unknown[] = [];
+
+  if (input.title !== undefined) {
+    values.push(input.title);
+    updates.push(`title = $${values.length}`);
+  }
 
   if (input.currentIntent !== undefined) {
     values.push(input.currentIntent);
