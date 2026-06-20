@@ -1,9 +1,18 @@
 import type { DraftPlanningState, PlanningChatMessage } from "./planning.types.ts";
+import {
+  SCHEDULING_PREFERENCE_CANDIDATE_ARRAY_SCHEMA,
+  SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+} from "../scheduling-context/scheduling-preference-extraction.ts";
 
 export const PLANNING_TURN_RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["assistantMessage", "draftPlanningState", "status"],
+  required: [
+    "assistantMessage",
+    "draftPlanningState",
+    "status",
+    "schedulingPreferenceCandidates",
+  ],
   properties: {
     assistantMessage: {
       type: "string",
@@ -13,6 +22,7 @@ export const PLANNING_TURN_RESPONSE_SCHEMA = {
       type: "string",
       enum: ["needs_clarification", "plan_ready"],
     },
+    schedulingPreferenceCandidates: SCHEDULING_PREFERENCE_CANDIDATE_ARRAY_SCHEMA,
   },
 } as const;
 
@@ -61,6 +71,8 @@ export function createPlanningTurnInstructions(): string {
     "Do not require barrier analysis, limiting habits, scripted actions, environmental optimizations, or detailed schedule design before creating a first goal.",
     "Treat barriers as later reflection data that the user can provide after they attempt to follow a plan or schedule.",
     "If the user volunteers barriers, limiting habits, scripted actions, environmental optimizations, schedule preferences, or constraints, capture them.",
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+    "During planning intake, goal-specific or activity-specific spacing rules belong in schedulingPreferenceCandidates with goal or activity scope; they should not be treated as global user preferences.",
     "If the user says to skip or not worry about an optional planning topic, do not ask about that topic again in this intake.",
     "Use ICS-aligned planning logic only when it helps turn vague intention into concrete direction, milestones, realistic time availability, constraints, and next actions.",
     "Saved personal scheduling context represents standing user preferences and constraints. Use it unless the user explicitly overrides it in the conversation.",

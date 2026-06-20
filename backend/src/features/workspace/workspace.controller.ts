@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { resolveAuthenticatedRequest } from "../auth/auth-session.ts";
 import {
   addMetricProgressEntry,
+  ensureGoalMetricsForUser,
   listGoalMetrics,
   listGoals,
   listTasks,
@@ -180,6 +181,7 @@ export async function getMetrics(req: Request, res: Response) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
+    await ensureGoalMetricsForUser(session.user.id);
     return res.json({ metrics: await listGoalMetrics(session.user.id) });
   } catch (error) {
     return handleWorkspaceError(res, "load metrics", error);

@@ -96,21 +96,23 @@ Start the full local test environment:
 npm run local
 ```
 
-This starts local Postgres and Ollama, pulls the default model, resets the local database, and starts the web app plus API.
+This starts local Postgres in Docker, starts native Ollama if needed, pulls the default model, resets the local database, and starts the web app plus API.
 
 Or run the steps separately:
 
 ```bash
-npm run local:up
-npm run local:ai:pull
+npm run local:db:up
+npm run local:ai:native
 ```
 
-`local:ai:pull` pulls `qwen3:4b` by default. To use a lighter or stronger model:
+`local:ai:native` pulls `llama3.2:3b` by default because it is much faster for local structured JSON testing on this machine. To use a stronger model:
 
 ```bash
-OLLAMA_MODEL=llama3.2:3b npm run local:ai:pull
-OLLAMA_MODEL=qwen3:8b npm run local:ai:pull
+OLLAMA_MODEL=qwen3:4b npm run local:ai:native
+OLLAMA_MODEL=qwen3:8b npm run local:ai:native
 ```
+
+Native Ollama is recommended on macOS because Docker Ollama can be CPU-only and slow. If you need the all-Docker fallback, run `npm run local:docker`.
 
 Reset the local database and apply migrations:
 
@@ -133,10 +135,20 @@ DATABASE_SSL_MODE=disable
 GOOGLE_INTEGRATION_PROVIDER=local
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3:4b
+OLLAMA_MODEL=llama3.2:3b
 ```
 
-If native Ollama is faster on your Mac, run Ollama outside Docker and keep `OLLAMA_BASE_URL=http://localhost:11434`; the backend does not care whether Ollama is Dockerized or native.
+The backend does not care whether Ollama is native or Dockerized as long as `OLLAMA_BASE_URL` points to the running Ollama server.
+
+Monitor native Ollama while testing:
+
+```bash
+npm run local:ai:ps
+npm run local:ai:watch
+npm run local:ai:logs
+```
+
+The API console also logs each Ollama structured request with its schema name, attempt number, HTTP status, and duration.
 
 Run local regression tests with deterministic AI:
 

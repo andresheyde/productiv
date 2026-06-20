@@ -11,6 +11,7 @@ import type {
 import type {
   DerivedSchedulingSuggestionRecord,
   ScheduleReflectionRecord,
+  SchedulingPreferenceCandidate,
 } from "../scheduling-context/scheduling-context.types.ts";
 import type { ScheduleProposalRecord } from "./schedule-proposals.repository.ts";
 
@@ -71,6 +72,7 @@ export type AssistantModelResponse = {
   contextSummary: string;
   navigationHint: AssistantNavigationHint;
   actions: AssistantAction[];
+  schedulingPreferenceCandidates: SchedulingPreferenceCandidate[];
 };
 
 export type WorkLogProgressUpdate = {
@@ -87,6 +89,7 @@ export type WorkLogModelResponse = {
   goalId: string | null;
   taskId: string | null;
   progressUpdates: WorkLogProgressUpdate[];
+  schedulingPreferenceCandidates: SchedulingPreferenceCandidate[];
 };
 
 export type ScheduleReflectionStrategySuggestion = {

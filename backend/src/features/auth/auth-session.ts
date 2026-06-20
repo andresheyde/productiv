@@ -5,8 +5,8 @@ import {
   type SessionUser,
 } from "../../shared/auth/session.ts";
 import { fetchGoogleProfileFromTokens } from "./auth.service.ts";
-import { upsertUserProfile } from "./auth.persistence.ts";
-import type { AuthenticatedUser } from "./auth.types.ts";
+import { getUserById, upsertUserProfile } from "./auth.persistence.ts";
+import type { AuthenticatedUser, GoogleProfile } from "./auth.types.ts";
 
 export async function resolveAuthenticatedRequest(
   req: Pick<Request, "header">,
@@ -18,9 +18,20 @@ export async function resolveAuthenticatedRequest(
   }
 
   if (session.user) {
+    const existingUser = await getUserById(session.user.id);
+
+    if (existingUser) {
+      return {
+        tokens: session.tokens,
+        user: existingUser,
+      };
+    }
+
+    const user = await upsertUserProfile(sessionUserToGoogleProfile(session.user));
+
     return {
       tokens: session.tokens,
-      user: sessionUserToAuthenticatedUser(session.user),
+      user,
     };
   }
 
@@ -33,9 +44,8 @@ export async function resolveAuthenticatedRequest(
   };
 }
 
-function sessionUserToAuthenticatedUser(user: SessionUser): AuthenticatedUser {
+function sessionUserToGoogleProfile(user: SessionUser): GoogleProfile {
   return {
-    id: user.id,
     googleSubject: user.googleSubject,
     email: user.email,
     fullName: user.fullName,

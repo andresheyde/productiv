@@ -25,6 +25,13 @@ export type SchedulingPreferenceRuleSource = "user" | "derived";
 
 export type RuleConfidence = "low" | "medium" | "high";
 
+export type SchedulingPreferenceApplicabilityScope =
+  | "global"
+  | "domain"
+  | "goal"
+  | "activity"
+  | "temporary";
+
 export type WorkHoursRule = {
   dayOfWeek: SchedulingDayOfWeek;
   enabled: boolean;

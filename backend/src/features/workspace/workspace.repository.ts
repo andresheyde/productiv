@@ -14,6 +14,10 @@ import type {
   TaskStatus,
   WorkLogRecord,
 } from "./workspace.types.ts";
+import {
+  deriveGoalMetricSpecs,
+  normalizeMetricSpecKey,
+} from "./goal-metric-defaults.ts";
 
 type DatabaseExecutor = {
   query: <T extends QueryResultRow>(
@@ -374,6 +378,73 @@ export async function listGoalMetrics(
   return result.rows.map(mapGoalMetric);
 }
 
+export async function ensureGoalMetricsForUser(
+  userId: string,
+  db: DatabaseExecutor = getWorkspaceExecutor(),
+) {
+  const goals = await listGoals(userId, db);
+  const createdMetrics: GoalMetricRecord[] = [];
+
+  for (const goal of goals) {
+    if (goal.status === "archived") {
+      continue;
+    }
+
+    createdMetrics.push(
+      ...(await ensureGoalMetricsForGoal({ userId, goal }, db)),
+    );
+  }
+
+  return createdMetrics;
+}
+
+export async function ensureGoalMetricsForGoal(
+  input: {
+    userId: string;
+    goal: GoalRecord;
+  },
+  db: DatabaseExecutor = getWorkspaceExecutor(),
+) {
+  const existingRows = await listGoalMetricRowsForGoal(
+    input.userId,
+    input.goal.id,
+    db,
+  );
+  const existingKeys = new Set(
+    existingRows.map((row) =>
+      normalizeMetricSpecKey({
+        name: row.name,
+        unitLabel: row.unit_label,
+      }),
+    ),
+  );
+  const createdMetrics: GoalMetricRecord[] = [];
+
+  for (const spec of deriveGoalMetricSpecs(input.goal)) {
+    const key = normalizeMetricSpecKey(spec);
+
+    if (existingKeys.has(key)) {
+      continue;
+    }
+
+    const metric = await createGoalMetric(
+      {
+        userId: input.userId,
+        goalId: input.goal.id,
+        name: spec.name,
+        unitLabel: spec.unitLabel,
+        targetValue: spec.targetValue,
+      },
+      db,
+    );
+
+    createdMetrics.push(metric);
+    existingKeys.add(key);
+  }
+
+  return createdMetrics;
+}
+
 export async function listWorkLogs(
   userId: string,
   db: DatabaseExecutor = getWorkspaceExecutor(),
@@ -492,6 +563,41 @@ export async function getGoalMetricById(
   );
 
   return result.rows[0] ? mapGoalMetric(result.rows[0]) : null;
+}
+
+async function listGoalMetricRowsForGoal(
+  userId: string,
+  goalId: string,
+  db: DatabaseExecutor,
+) {
+  const result = await db.query<GoalMetricRow>(
+    `
+      select
+        metrics.id,
+        metrics.goal_id,
+        metrics.name,
+        metrics.unit_label,
+        metrics.target_value,
+        metrics.current_value,
+        metrics.is_active,
+        latest.delta_value as last_delta_value,
+        latest.created_at as last_entry_at,
+        metrics.created_at,
+        metrics.updated_at
+      from goal_metrics metrics
+      left join lateral (
+        select delta_value, created_at
+        from metric_progress_entries
+        where metric_id = metrics.id
+        order by created_at desc
+        limit 1
+      ) latest on true
+      where metrics.user_id = $1 and metrics.goal_id = $2
+    `,
+    [userId, goalId],
+  );
+
+  return result.rows;
 }
 
 export async function createGoal(

@@ -7,7 +7,7 @@ export const openAiApiBaseUrl =
   process.env.OPENAI_API_BASE_URL ?? "https://api.openai.com/v1";
 export const ollamaBaseUrl =
   process.env.OLLAMA_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:11434";
-export const ollamaModel = process.env.OLLAMA_MODEL ?? "qwen3:4b";
+export const ollamaModel = process.env.OLLAMA_MODEL ?? "llama3.2:3b";
 export const googleIntegrationProvider =
   process.env.GOOGLE_INTEGRATION_PROVIDER ?? "google";
 export const localGoogleSubject =

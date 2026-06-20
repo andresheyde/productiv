@@ -9,6 +9,7 @@ import type {
   ScheduleReflectionStrategySuggestion,
   SchedulingConflict,
   SchedulingDayOfWeek,
+  SchedulingPreferenceCandidate,
   SchedulingPreferenceRuleKind,
   SchedulingPreferenceRuleRecord,
   SchedulingPreferenceRuleSource,
@@ -413,6 +414,143 @@ export async function createDerivedSchedulingSuggestionsFromReflection(
           reflectionId: input.reflectionId,
           obstacle: suggestion.obstacle ?? null,
         }),
+      ],
+    );
+
+    const createdSuggestion = result.rows[0];
+
+    if (!createdSuggestion) {
+      continue;
+    }
+
+    createdSuggestions.push(
+      mapSchedulingSuggestion(createdSuggestion) as DerivedSchedulingSuggestionRecord,
+    );
+    existingKeys.add(key);
+  }
+
+  return createdSuggestions;
+}
+
+export async function createDerivedSchedulingSuggestionsFromCandidates(
+  input: {
+    userId: string;
+    candidates: SchedulingPreferenceCandidate[];
+    origin: string;
+    threadId?: string | undefined;
+    messageId?: string | undefined;
+    turnMode?: string | undefined;
+    goalId?: string | null | undefined;
+    goalTitle?: string | null | undefined;
+  },
+  db: DatabaseExecutor = getSchedulingContextExecutor(),
+): Promise<DerivedSchedulingSuggestionRecord[]> {
+  if (input.candidates.length === 0) {
+    return [];
+  }
+
+  const existingRows = await listSchedulingSuggestionRows(
+    input.userId,
+    ["suggested", "active", "dismissed"],
+    db,
+  );
+  const existingKeys = new Set(
+    existingRows.map((row) =>
+      buildScopedSchedulingSuggestionKey({
+        kind: row.kind,
+        title: row.title,
+        metadata: row.metadata ?? {},
+      }),
+    ),
+  );
+  const createdSuggestions: DerivedSchedulingSuggestionRecord[] = [];
+
+  for (const candidate of input.candidates) {
+    const title = candidate.title.trim();
+    const detail = candidate.detail.trim();
+
+    if (!title || !detail) {
+      continue;
+    }
+
+    const scopedGoalId =
+      candidate.applicabilityScope === "goal" ? input.goalId ?? null : null;
+    const scopedGoalTitle =
+      candidate.applicabilityScope === "goal"
+        ? input.goalTitle ?? candidate.goalTitle
+        : candidate.goalTitle;
+    const metadata = {
+      origin: input.origin,
+      threadId: input.threadId ?? null,
+      messageId: input.messageId ?? null,
+      turnMode: input.turnMode ?? null,
+      applicabilityScope: candidate.applicabilityScope,
+      domain: candidate.domain,
+      goalId: scopedGoalId,
+      goalTitle: scopedGoalTitle,
+      activityTitle: candidate.activityTitle,
+      temporalScope: candidate.temporalScope,
+      evidence: candidate.evidence,
+    };
+    const key = buildScopedSchedulingSuggestionKey({
+      kind: candidate.kind,
+      title,
+      metadata,
+    });
+
+    if (existingKeys.has(key)) {
+      continue;
+    }
+
+    const result = await db.query<SchedulingSuggestionRow>(
+      `
+        insert into scheduling_preference_suggestions (
+          user_id,
+          kind,
+          title,
+          detail,
+          source,
+          strength,
+          status,
+          confidence,
+          context_patch,
+          metadata
+        )
+        values (
+          $1,
+          $2,
+          $3,
+          $4,
+          'derived',
+          $5,
+          'suggested',
+          $6,
+          '{}'::jsonb,
+          $7::jsonb
+        )
+        returning
+          id,
+          user_id,
+          kind,
+          title,
+          detail,
+          source,
+          strength,
+          status,
+          confidence,
+          context_patch,
+          metadata,
+          created_at,
+          updated_at
+      `,
+      [
+        input.userId,
+        candidate.kind,
+        title,
+        detail,
+        candidate.strength,
+        candidate.confidence,
+        JSON.stringify(metadata),
       ],
     );
 
@@ -1174,7 +1312,7 @@ function buildCompiledSummary(input: {
   if (input.derivedRules.length > 0) {
     parts.push(
       `Accepted derived habits: ${input.derivedRules
-        .map((rule) => `${rule.title}${rule.detail ? ` (${rule.detail})` : ""}`)
+        .map(formatDerivedRuleForSummary)
         .join(", ")}.`,
     );
   }
@@ -1184,6 +1322,73 @@ function buildCompiledSummary(input: {
   }
 
   return parts.join(" ");
+}
+
+function formatDerivedRuleForSummary(rule: SchedulingPreferenceRuleRecord) {
+  const scopeLabel = formatRuleScope(rule.metadata);
+  const detail = rule.detail ? ` (${rule.detail})` : "";
+  return `${scopeLabel}${rule.title}${detail}`;
+}
+
+function formatRuleScope(metadata: Record<string, unknown>) {
+  const scope = getMetadataString(metadata, "applicabilityScope");
+
+  if (!scope || scope === "global") {
+    return "";
+  }
+
+  const domain = getMetadataString(metadata, "domain");
+  const goalTitle = getMetadataString(metadata, "goalTitle");
+  const activityTitle = getMetadataString(metadata, "activityTitle");
+  const temporalScope = getMetadataString(metadata, "temporalScope");
+
+  if (scope === "domain" && domain) {
+    return `[domain: ${domain}] `;
+  }
+
+  if (scope === "goal" && goalTitle) {
+    return `[goal: ${goalTitle}] `;
+  }
+
+  if (scope === "activity" && activityTitle) {
+    return `[activity: ${activityTitle}] `;
+  }
+
+  if (scope === "temporary" && temporalScope) {
+    return `[temporary: ${temporalScope}] `;
+  }
+
+  return `[${scope}] `;
+}
+
+function buildScopedSchedulingSuggestionKey(input: {
+  kind: SchedulingPreferenceRuleKind;
+  title: string;
+  metadata: Record<string, unknown>;
+}) {
+  return [
+    input.kind,
+    normalizeDedupeValue(input.title),
+    normalizeDedupeValue(
+      getMetadataString(input.metadata, "applicabilityScope") ?? "global",
+    ),
+    normalizeDedupeValue(getMetadataString(input.metadata, "domain") ?? ""),
+    normalizeDedupeValue(getMetadataString(input.metadata, "goalId") ?? ""),
+    normalizeDedupeValue(getMetadataString(input.metadata, "goalTitle") ?? ""),
+    normalizeDedupeValue(getMetadataString(input.metadata, "activityTitle") ?? ""),
+    normalizeDedupeValue(getMetadataString(input.metadata, "temporalScope") ?? ""),
+  ].join(":");
+}
+
+function getMetadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function normalizeDedupeValue(value: string) {
+  return value.toLowerCase().replace(/\s+/gu, " ").trim();
 }
 
 function inferLatestWorkEndTimeFromNotes(notes: string) {

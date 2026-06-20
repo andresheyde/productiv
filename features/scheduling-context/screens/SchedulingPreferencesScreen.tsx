@@ -473,6 +473,8 @@ function SuggestionCard({
   onAccept,
   onDismiss,
 }: SuggestionCardProps) {
+  const scopeLabel = getSuggestionScopeLabel(suggestion);
+
   return (
     <View
       style={{
@@ -501,6 +503,15 @@ function SuggestionCard({
           }}
         >
           {suggestion.detail}
+        </Text>
+        <Text
+          style={{
+            color: "#7d6f61",
+            fontSize: 12,
+            fontWeight: "700",
+          }}
+        >
+          {scopeLabel}
         </Text>
         <Text
           style={{
@@ -568,6 +579,44 @@ function SuggestionCard({
       </View>
     </View>
   );
+}
+
+function getSuggestionScopeLabel(suggestion: DerivedSchedulingSuggestion) {
+  const scope = getMetadataString(suggestion.metadata, "applicabilityScope");
+
+  if (!scope || scope === "global") {
+    return "Scope: Global";
+  }
+
+  const domain = getMetadataString(suggestion.metadata, "domain");
+  const goalTitle = getMetadataString(suggestion.metadata, "goalTitle");
+  const activityTitle = getMetadataString(suggestion.metadata, "activityTitle");
+  const temporalScope = getMetadataString(suggestion.metadata, "temporalScope");
+
+  if (scope === "domain" && domain) {
+    return `Scope: ${domain}`;
+  }
+
+  if (scope === "goal" && goalTitle) {
+    return `Scope: Goal - ${goalTitle}`;
+  }
+
+  if (scope === "activity" && activityTitle) {
+    return `Scope: Activity - ${activityTitle}`;
+  }
+
+  if (scope === "temporary" && temporalScope) {
+    return `Scope: Temporary - ${temporalScope}`;
+  }
+
+  return `Scope: ${scope.charAt(0).toUpperCase()}${scope.slice(1)}`;
+}
+
+function getMetadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 function CalendarSourceRow({

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/features/auth/AuthProvider";
 import WorkspaceAuthGate from "@/features/workspace/components/WorkspaceAuthGate";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
+import type { Goal, GoalMetric } from "@/features/workspace/types";
 
 export default function MetricsScreen() {
   const { isAuthReady, isAuthenticated } = useAuth();
@@ -19,6 +20,10 @@ export default function MetricsScreen() {
   const [entryDrafts, setEntryDrafts] = useState<Record<string, string>>({});
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [savingMetricId, setSavingMetricId] = useState<string | null>(null);
+  const metricSections = useMemo(
+    () => buildMetricSections(goals, metrics),
+    [goals, metrics],
+  );
 
   if (!isAuthReady) {
     return (
@@ -151,175 +156,287 @@ export default function MetricsScreen() {
           </View>
         ) : null}
 
-        {metrics.map((metric) => {
-          const progress = Math.min(metric.currentValue / metric.targetValue, 1);
-          const goalTitle =
-            goals.find((goal) => goal.id === metric.goalId)?.title ?? "Linked goal";
-
-          return (
-            <View
-              key={metric.id}
-              style={{
-                borderRadius: 24,
-                backgroundColor: "#fffaf2",
-                borderWidth: 1,
-                borderColor: "#ddd3c3",
-                padding: 18,
-                gap: 14,
-              }}
-            >
-              <View style={{ gap: 6 }}>
-                <Text
-                  style={{
-                    color: "#5a6762",
-                    fontSize: 13,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.7,
-                  }}
-                >
-                  {goalTitle}
-                </Text>
-                <Text
-                  style={{
-                    color: "#132521",
-                    fontSize: 20,
-                    fontWeight: "700",
-                  }}
-                >
-                  {metric.name}
-                </Text>
-              </View>
-
-              <View style={{ gap: 8 }}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#31413c",
-                      fontWeight: "700",
-                    }}
-                  >
-                    {metric.currentValue} / {metric.targetValue} {metric.unitLabel}
-                  </Text>
-                  <Text
-                    style={{
-                      color: "#5a6762",
-                    }}
-                  >
-                    {Math.round(progress * 100)}%
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    height: 12,
-                    borderRadius: 999,
-                    backgroundColor: "#d9d0bf",
-                    overflow: "hidden",
-                  }}
-                >
-                  <View
-                    style={{
-                      width: `${progress * 100}%`,
-                      height: "100%",
-                      backgroundColor: "#123a35",
-                    }}
-                  />
-                </View>
-              </View>
-
-              <View
+        {metricSections.map((section) => (
+          <View key={section.id} style={{ gap: 10 }}>
+            <View style={{ gap: 4, paddingHorizontal: 2 }}>
+              <Text
                 style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: 10,
+                  color: "#132521",
+                  fontSize: 20,
+                  fontWeight: "800",
                 }}
               >
-                <MetricChip
-                  label={
-                    metric.lastDeltaValue !== null
-                      ? `Latest +${metric.lastDeltaValue}`
-                      : "No entries yet"
-                  }
-                />
-                <MetricChip label={metric.isActive ? "Active" : "Paused"} />
-              </View>
-
-              <View
+                {section.title}
+              </Text>
+              <Text
                 style={{
-                  paddingTop: 6,
-                  gap: 12,
-                  borderTopWidth: 1,
-                  borderTopColor: "#e6dccd",
+                  color: "#5a6762",
+                  fontWeight: "700",
                 }}
               >
-                <Text
-                  style={{
-                    color: "#31413c",
-                    fontWeight: "700",
-                  }}
-                >
-                  Add progress manually
-                </Text>
-                <TextInput
-                  value={entryDrafts[metric.id] ?? ""}
-                  onChangeText={(value) =>
-                    setEntryDrafts((currentDrafts) => ({
-                      ...currentDrafts,
-                      [metric.id]: value,
-                    }))
-                  }
-                  keyboardType="decimal-pad"
-                  placeholder={`Amount in ${metric.unitLabel}`}
-                  placeholderTextColor="#8c9793"
-                  style={singleLineInputStyle}
-                />
-                <TextInput
-                  value={noteDrafts[metric.id] ?? ""}
-                  onChangeText={(value) =>
-                    setNoteDrafts((currentDrafts) => ({
-                      ...currentDrafts,
-                      [metric.id]: value,
-                    }))
-                  }
-                  placeholder="Optional note"
-                  placeholderTextColor="#8c9793"
-                  style={singleLineInputStyle}
-                />
-                <Pressable
-                  onPress={() => {
-                    void handleAddEntry(metric.id);
-                  }}
-                  disabled={savingMetricId === metric.id}
-                  style={{
-                    borderRadius: 16,
-                    paddingVertical: 14,
-                    alignItems: "center",
-                    backgroundColor:
-                      savingMetricId === metric.id ? "#cdd6d2" : "#123a35",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#f4f0e8",
-                      fontWeight: "700",
-                    }}
-                  >
-                    {savingMetricId === metric.id ? "Saving..." : "Add progress"}
-                  </Text>
-                </Pressable>
-              </View>
+                {section.subtitle}
+              </Text>
             </View>
-          );
-        })}
+
+            {section.metrics.map((metric) => (
+              <MetricCard
+                key={metric.id}
+                metric={metric}
+                entryValue={entryDrafts[metric.id] ?? ""}
+                noteValue={noteDrafts[metric.id] ?? ""}
+                isSaving={savingMetricId === metric.id}
+                onEntryChange={(value) =>
+                  setEntryDrafts((currentDrafts) => ({
+                    ...currentDrafts,
+                    [metric.id]: value,
+                  }))
+                }
+                onNoteChange={(value) =>
+                  setNoteDrafts((currentDrafts) => ({
+                    ...currentDrafts,
+                    [metric.id]: value,
+                  }))
+                }
+                onAddEntry={() => {
+                  void handleAddEntry(metric.id);
+                }}
+              />
+            ))}
+          </View>
+        ))}
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+type MetricSection = {
+  id: string;
+  metrics: GoalMetric[];
+  subtitle: string;
+  title: string;
+};
+
+function buildMetricSections(goals: Goal[], metrics: GoalMetric[]): MetricSection[] {
+  const goalsById = new Map(goals.map((goal) => [goal.id, goal]));
+  const metricsByGoalId = new Map<string, GoalMetric[]>();
+
+  for (const metric of metrics) {
+    const goalMetrics = metricsByGoalId.get(metric.goalId) ?? [];
+    goalMetrics.push(metric);
+    metricsByGoalId.set(metric.goalId, goalMetrics);
+  }
+
+  const goalSections = goals
+    .filter((goal) => goal.status !== "archived")
+    .map((goal) => ({
+      id: goal.id,
+      title: goal.title,
+      subtitle: `${goal.status} goal - ${metricsByGoalId.get(goal.id)?.length ?? 0} metric${
+        (metricsByGoalId.get(goal.id)?.length ?? 0) === 1 ? "" : "s"
+      }`,
+      metrics: sortMetrics(metricsByGoalId.get(goal.id) ?? []),
+    }))
+    .filter((section) => section.metrics.length > 0);
+
+  const orphanMetrics = metrics.filter((metric) => !goalsById.has(metric.goalId));
+
+  if (orphanMetrics.length === 0) {
+    return goalSections;
+  }
+
+  return [
+    ...goalSections,
+    {
+      id: "other-metrics",
+      title: "Other metrics",
+      subtitle: `${orphanMetrics.length} metric${orphanMetrics.length === 1 ? "" : "s"}`,
+      metrics: sortMetrics(orphanMetrics),
+    },
+  ];
+}
+
+function sortMetrics(metrics: GoalMetric[]) {
+  return [...metrics].sort((left, right) => {
+    const leftIsHours = isHoursMetric(left);
+    const rightIsHours = isHoursMetric(right);
+
+    if (leftIsHours !== rightIsHours) {
+      return leftIsHours ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function isHoursMetric(metric: GoalMetric) {
+  return metric.unitLabel.toLowerCase() === "hours";
+}
+
+function MetricCard({
+  entryValue,
+  isSaving,
+  metric,
+  noteValue,
+  onAddEntry,
+  onEntryChange,
+  onNoteChange,
+}: {
+  entryValue: string;
+  isSaving: boolean;
+  metric: GoalMetric;
+  noteValue: string;
+  onAddEntry: () => void;
+  onEntryChange: (value: string) => void;
+  onNoteChange: (value: string) => void;
+}) {
+  const progress =
+    metric.targetValue > 0
+      ? Math.min(metric.currentValue / metric.targetValue, 1)
+      : 0;
+
+  return (
+    <View
+      style={{
+        borderRadius: 18,
+        backgroundColor: "#fffaf2",
+        borderWidth: 1,
+        borderColor: "#ddd3c3",
+        padding: 18,
+        gap: 14,
+      }}
+    >
+      <View style={{ gap: 6 }}>
+        <Text
+          style={{
+            color: "#132521",
+            fontSize: 18,
+            fontWeight: "700",
+          }}
+        >
+          {metric.name}
+        </Text>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <Text
+            style={{
+              color: "#31413c",
+              fontWeight: "700",
+              flex: 1,
+            }}
+          >
+            {formatMetricValue(metric.currentValue)} /{" "}
+            {formatMetricValue(metric.targetValue)} {metric.unitLabel}
+          </Text>
+          <Text
+            style={{
+              color: "#5a6762",
+              fontWeight: "700",
+            }}
+          >
+            {Math.round(progress * 100)}%
+          </Text>
+        </View>
+        <View
+          style={{
+            height: 12,
+            borderRadius: 999,
+            backgroundColor: "#d9d0bf",
+            overflow: "hidden",
+          }}
+        >
+          <View
+            style={{
+              width: `${progress * 100}%`,
+              height: "100%",
+              backgroundColor: "#123a35",
+            }}
+          />
+        </View>
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 10,
+        }}
+      >
+        <MetricChip
+          label={
+            metric.lastDeltaValue !== null
+              ? `Latest +${formatMetricValue(metric.lastDeltaValue)}`
+              : "No entries yet"
+          }
+        />
+        <MetricChip label={metric.isActive ? "Active" : "Paused"} />
+      </View>
+
+      <View
+        style={{
+          paddingTop: 6,
+          gap: 12,
+          borderTopWidth: 1,
+          borderTopColor: "#e6dccd",
+        }}
+      >
+        <Text
+          style={{
+            color: "#31413c",
+            fontWeight: "700",
+          }}
+        >
+          Add progress manually
+        </Text>
+        <TextInput
+          value={entryValue}
+          onChangeText={onEntryChange}
+          keyboardType="decimal-pad"
+          placeholder={`Amount in ${metric.unitLabel}`}
+          placeholderTextColor="#8c9793"
+          style={singleLineInputStyle}
+        />
+        <TextInput
+          value={noteValue}
+          onChangeText={onNoteChange}
+          placeholder="Optional note"
+          placeholderTextColor="#8c9793"
+          style={singleLineInputStyle}
+        />
+        <Pressable
+          onPress={onAddEntry}
+          disabled={isSaving}
+          style={{
+            borderRadius: 16,
+            paddingVertical: 14,
+            alignItems: "center",
+            backgroundColor: isSaving ? "#cdd6d2" : "#123a35",
+          }}
+        >
+          <Text
+            style={{
+              color: "#f4f0e8",
+              fontWeight: "700",
+            }}
+          >
+            {isSaving ? "Saving..." : "Add progress"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function formatMetricValue(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function MetricChip({ label }: { label: string }) {

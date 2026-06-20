@@ -37,6 +37,20 @@ export async function upsertUserProfile(profile: GoogleProfile) {
   return mapUserRow(result.rows[0]);
 }
 
+export async function getUserById(userId: string) {
+  const result = await queryRuntimeDatabase<UserRow>(
+    `
+      select id, google_subject, email, full_name, avatar_url
+      from users
+      where id = $1
+    `,
+    [userId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapUserRow(row) : null;
+}
+
 function mapUserRow(row: UserRow | undefined): AuthenticatedUser {
   if (!row) {
     throw new Error("Expected user upsert to return a row.");

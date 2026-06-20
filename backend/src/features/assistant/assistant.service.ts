@@ -16,6 +16,7 @@ import type {
 } from "../planning/planning.types.ts";
 import {
   buildCompiledSchedulingContext,
+  createDerivedSchedulingSuggestionsFromCandidates,
   createDerivedSchedulingSuggestionsFromReflection,
   createScheduleReflection,
   detectSchedulingConflicts,
@@ -61,6 +62,7 @@ import {
   createGoalMetric,
   createTask,
   createWorkLog,
+  ensureGoalMetricsForGoal,
   getGoalMetricById,
   getOrCreateDefaultAssistantThread,
   getWorkspaceExecutor,
@@ -164,7 +166,7 @@ export async function runAssistantTurn(input: {
     throw new Error("message must not be empty");
   }
 
-  await appendAssistantMessage({
+  const userMessage = await appendAssistantMessage({
     threadId: thread.id,
     role: "user",
     intent:
@@ -194,6 +196,7 @@ export async function runAssistantTurn(input: {
       messages,
       artifact: thread.latestArtifact as PlanningArtifact,
       schedulingContext: compiledSchedulingContext,
+      latestUserMessageId: userMessage.id,
     });
   }
 
@@ -205,6 +208,7 @@ export async function runAssistantTurn(input: {
       goals,
       tasks,
       metrics,
+      latestUserMessageId: userMessage.id,
     });
   }
 
@@ -250,6 +254,7 @@ export async function runAssistantTurn(input: {
     taskSchedulingContext,
     scheduleRelevantCalendarEvents: calendarContext.events,
     calendarContextWarning: calendarContext.warning,
+    latestUserMessageId: userMessage.id,
   });
 }
 
@@ -402,6 +407,7 @@ async function handlePlanningTurn(input: {
   messages: AssistantMessageRecord[];
   artifact: PlanningArtifact;
   schedulingContext: CompiledSchedulingContext;
+  latestUserMessageId: string;
 }): Promise<AssistantTurnResponse> {
   const planningMessages = input.messages
     .filter((message) => message.role === "user" || message.role === "assistant")
@@ -453,6 +459,29 @@ async function handlePlanningTurn(input: {
         client,
       );
       sideEffects.goals.push(goal);
+      const goalMetrics = await ensureGoalMetricsForGoal(
+        {
+          userId: input.userId,
+          goal,
+        },
+        client,
+      );
+      sideEffects.metrics.push(...goalMetrics);
+      const schedulingSuggestions =
+        await createDerivedSchedulingSuggestionsFromCandidates(
+          {
+            userId: input.userId,
+            candidates: result.schedulingPreferenceCandidates,
+            origin: "planning_intake",
+            threadId: input.threadId,
+            messageId: input.latestUserMessageId,
+            turnMode: "planning_intake",
+            goalId: goal.id,
+            goalTitle: goal.title,
+          },
+          client,
+        );
+      sideEffects.schedulingSuggestions.push(...schedulingSuggestions);
 
       const assistantMessage =
         `${result.assistantMessage}\n\nI turned that into your first goal and initial focus plan.`;
@@ -465,6 +494,9 @@ async function handlePlanningTurn(input: {
           content: assistantMessage,
           structuredPayload: {
             generatedPlan: result.generatedPlan,
+            schedulingPreferenceCandidates:
+              result.schedulingPreferenceCandidates,
+            schedulingSuggestions,
             sideEffects,
           },
         },
@@ -495,6 +527,20 @@ async function handlePlanningTurn(input: {
       };
     }
 
+    const schedulingSuggestions =
+      await createDerivedSchedulingSuggestionsFromCandidates(
+        {
+          userId: input.userId,
+          candidates: result.schedulingPreferenceCandidates,
+          origin: "planning_intake",
+          threadId: input.threadId,
+          messageId: input.latestUserMessageId,
+          turnMode: "planning_intake",
+        },
+        client,
+      );
+    sideEffects.schedulingSuggestions.push(...schedulingSuggestions);
+
     await appendAssistantMessage(
       {
         threadId: input.threadId,
@@ -503,6 +549,9 @@ async function handlePlanningTurn(input: {
         content: result.assistantMessage,
         structuredPayload: {
           draftPlanningState: result.draftPlanningState,
+          schedulingPreferenceCandidates: result.schedulingPreferenceCandidates,
+          schedulingSuggestions,
+          sideEffects,
         },
       },
       client,
@@ -552,6 +601,7 @@ async function handleGeneralAssistantTurn(input: {
   taskSchedulingContext: TaskSchedulingContextItem[];
   scheduleRelevantCalendarEvents: Array<Record<string, unknown>>;
   calendarContextWarning: string | null;
+  latestUserMessageId: string;
 }): Promise<AssistantTurnResponse> {
   const aiProvider = getStructuredAiProvider();
   const modelResponse = normalizeAssistantModelResponse(
@@ -638,6 +688,24 @@ async function handleGeneralAssistantTurn(input: {
       );
     }
 
+    const schedulingSuggestions =
+      await createDerivedSchedulingSuggestionsFromCandidates(
+        {
+          userId: input.userId,
+          candidates: modelResponse.schedulingPreferenceCandidates,
+          origin: "assistant_turn",
+          threadId: input.threadId,
+          messageId: input.latestUserMessageId,
+          turnMode: "chat",
+          goalId:
+            sideEffects.goals.length === 1 ? sideEffects.goals[0]?.id : null,
+          goalTitle:
+            sideEffects.goals.length === 1 ? sideEffects.goals[0]?.title : null,
+        },
+        client,
+      );
+    sideEffects.schedulingSuggestions.push(...schedulingSuggestions);
+
     const assistantMessage = appendWarnings(
       modelResponse.assistantMessage,
       warnings,
@@ -651,6 +719,9 @@ async function handleGeneralAssistantTurn(input: {
         content: assistantMessage,
         structuredPayload: {
           actions: modelResponse.actions,
+          schedulingPreferenceCandidates:
+            modelResponse.schedulingPreferenceCandidates,
+          schedulingSuggestions,
           scheduleProposals: sideEffects.scheduleProposals,
           sideEffects,
         },
@@ -689,6 +760,7 @@ async function handleWorkLogTurn(input: {
   goals: GoalRecord[];
   tasks: TaskRecord[];
   metrics: GoalMetricRecord[];
+  latestUserMessageId: string;
 }): Promise<AssistantTurnResponse> {
   const aiProvider = getStructuredAiProvider();
   const modelResponse = normalizeWorkLogModelResponse(
@@ -753,6 +825,20 @@ async function handleWorkLogTurn(input: {
       }
     }
 
+    const schedulingSuggestions =
+      await createDerivedSchedulingSuggestionsFromCandidates(
+        {
+          userId: input.userId,
+          candidates: modelResponse.schedulingPreferenceCandidates,
+          origin: "work_log_turn",
+          threadId: input.threadId,
+          messageId: input.latestUserMessageId,
+          turnMode: "work_log",
+        },
+        client,
+      );
+    sideEffects.schedulingSuggestions.push(...schedulingSuggestions);
+
     await appendAssistantMessage(
       {
         threadId: input.threadId,
@@ -762,6 +848,10 @@ async function handleWorkLogTurn(input: {
         structuredPayload: {
           workLogId: workLog.id,
           progressUpdates: modelResponse.progressUpdates,
+          schedulingPreferenceCandidates:
+            modelResponse.schedulingPreferenceCandidates,
+          schedulingSuggestions,
+          sideEffects,
         },
       },
       client,
@@ -831,6 +921,19 @@ async function applyAssistantAction(
       );
       input.goalsById.set(goal.id, goal);
       input.sideEffects.goals.push(goal);
+      const goalMetrics = await ensureGoalMetricsForGoal(
+        {
+          userId: input.userId,
+          goal,
+        },
+        db,
+      );
+
+      for (const metric of goalMetrics) {
+        input.metricsById.set(metric.id, metric);
+      }
+
+      input.sideEffects.metrics.push(...goalMetrics);
       return;
     }
     case "update_goal": {
@@ -869,6 +972,19 @@ async function applyAssistantAction(
       if (goal) {
         input.goalsById.set(goal.id, goal);
         input.sideEffects.goals.push(goal);
+        const goalMetrics = await ensureGoalMetricsForGoal(
+          {
+            userId: input.userId,
+            goal,
+          },
+          db,
+        );
+
+        for (const metric of goalMetrics) {
+          input.metricsById.set(metric.id, metric);
+        }
+
+        input.sideEffects.metrics.push(...goalMetrics);
       }
       return;
     }
@@ -1713,7 +1829,7 @@ function inferTurnMode(
 
   if (
     hasMetrics &&
-    /(worked|studied|finished|completed|practiced|logged|spent)\b/i.test(message) &&
+    /(worked|studied|finished|completed|practiced|logged|spent|applied|submitted|answered|solved|read|ran|walked|lifted|did)\b/i.test(message) &&
     /\b\d+(\.\d+)?\b/.test(message)
   ) {
     return "work_log";

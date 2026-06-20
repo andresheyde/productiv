@@ -6,6 +6,7 @@ import {
   type PlanningFieldConfidence,
   type PlanningTurnExtraction,
 } from "./planning.types.ts";
+import { normalizeSchedulingPreferenceCandidates } from "../scheduling-context/scheduling-preference-extraction.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -80,6 +81,9 @@ export function normalizePlanningTurnExtraction(
   return {
     assistantMessage,
     draftPlanningState,
+    schedulingPreferenceCandidates: normalizeSchedulingPreferenceCandidates(
+      record.schedulingPreferenceCandidates,
+    ),
     status,
   };
 }

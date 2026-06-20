@@ -5,6 +5,11 @@ import type {
   ScheduleReflectionStrategySuggestion,
   WorkLogModelResponse,
 } from "./assistant.types.ts";
+import {
+  SCHEDULING_PREFERENCE_CANDIDATE_ARRAY_SCHEMA,
+  SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+  normalizeSchedulingPreferenceCandidates,
+} from "../scheduling-context/scheduling-preference-extraction.ts";
 
 export const ASSISTANT_TURN_SCHEMA = {
   type: "object",
@@ -14,6 +19,7 @@ export const ASSISTANT_TURN_SCHEMA = {
     "contextSummary",
     "navigationHint",
     "actions",
+    "schedulingPreferenceCandidates",
   ],
   properties: {
     assistantMessage: { type: "string" },
@@ -29,6 +35,7 @@ export const ASSISTANT_TURN_SCHEMA = {
       type: "array",
       items: assistantActionSchema(),
     },
+    schedulingPreferenceCandidates: SCHEDULING_PREFERENCE_CANDIDATE_ARRAY_SCHEMA,
   },
 } as const satisfies Record<string, unknown>;
 
@@ -43,6 +50,7 @@ export const WORK_LOG_SCHEMA = {
     "goalId",
     "taskId",
     "progressUpdates",
+    "schedulingPreferenceCandidates",
   ],
   properties: {
     assistantMessage: { type: "string" },
@@ -70,6 +78,7 @@ export const WORK_LOG_SCHEMA = {
         },
       },
     },
+    schedulingPreferenceCandidates: SCHEDULING_PREFERENCE_CANDIDATE_ARRAY_SCHEMA,
   },
 } as const satisfies Record<string, unknown>;
 
@@ -148,6 +157,7 @@ export function createAssistantTurnInstructions() {
     "Never let generic best-practice scheduling guidance silently overrule a saved user preference.",
     "Metrics in this product are intentionally simple progress bars tied to goals.",
     "A metric should only be created when the user clearly defines something measurable like hours worked or questions completed.",
+    "When creating or updating a goal, the backend automatically creates a default hours metric and measurable success-criteria metrics; do not emit duplicate create_metric actions for those same fields.",
     "Do not invent numbers or schedule times.",
     "Resolve relative date language from the Current timestamp. Treat 'next week' as the next Sunday-through-Saturday calendar week unless the user gives a different week boundary.",
     "Use schedule-relevant calendar events to infer travel, trips, and unavailable days before asking the user to restate them.",
@@ -160,6 +170,7 @@ export function createAssistantTurnInstructions() {
     "If the user asks a question about a pending proposal or gives corrective feedback, answer or revise it instead of confirming it.",
     "Use dismiss_schedule_proposal only when the user is explicitly rejecting a pending schedule proposal.",
     "If the user explicitly asks for a slot that conflicts with their saved preferences, keep the user's decision and mention the conflict in assistantMessage.",
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
     "Use goalId, taskId, and metricId from the provided context whenever you are referring to existing records.",
     "If a field is not needed for an action, return null for it.",
     "Prefer updating existing records over duplicating them.",
@@ -175,10 +186,12 @@ export function createWorkLogInstructions() {
     "The user is logging work in natural language.",
     "Always save a concise summary of what they did.",
     "Only extract metric progress when the message clearly states a numeric amount that maps to one of the existing metrics.",
+    "Map clear time-spent phrases like 'worked 2 hours' or 'spent 30 minutes' to the goal's hours metric when the goal context matches, or when there is only one plausible active goal.",
     "Examples: hours worked, interview questions completed, pages read, reps completed.",
     "Do not guess amounts.",
     "If extraction is ambiguous, leave progressUpdates empty and ask a short follow-up inside assistantMessage.",
     "Use goalId and taskId only when the message clearly maps to an existing goal or task.",
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
     "Return valid JSON that exactly matches the schema.",
   ].join(" ");
 }
@@ -316,6 +329,9 @@ export function normalizeAssistantModelResponse(
     actions: Array.isArray(record.actions)
       ? record.actions.map(normalizeAction).filter((action) => action !== null)
       : [],
+    schedulingPreferenceCandidates: normalizeSchedulingPreferenceCandidates(
+      record.schedulingPreferenceCandidates,
+    ),
   };
 }
 
@@ -348,6 +364,9 @@ export function normalizeWorkLogModelResponse(value: unknown): WorkLogModelRespo
           }
         })
       : [],
+    schedulingPreferenceCandidates: normalizeSchedulingPreferenceCandidates(
+      record.schedulingPreferenceCandidates,
+    ),
   };
 }
 

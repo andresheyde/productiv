@@ -87,6 +87,7 @@ function buildPlanningTurnResponse(input: string) {
       missingFields: [],
       nextBestQuestion: null,
     },
+    schedulingPreferenceCandidates: [],
     status: "plan_ready",
   };
 }
@@ -215,6 +216,9 @@ function buildAssistantTurnResponse(input: string) {
     contextSummary: "Local deterministic assistant context.",
     navigationHint,
     actions,
+    schedulingPreferenceCandidates: buildDeterministicSchedulingPreferenceCandidates(
+      message,
+    ),
   };
 }
 
@@ -241,6 +245,8 @@ function buildWorkLogTurnResponse(input: string) {
             },
           ]
         : [],
+    schedulingPreferenceCandidates:
+      buildDeterministicSchedulingPreferenceCandidates(message),
   };
 }
 
@@ -272,6 +278,42 @@ function buildScheduleReflectionResponse(input: string) {
       },
     ],
   };
+}
+
+function buildDeterministicSchedulingPreferenceCandidates(message: string) {
+  if (
+    /(\bprefer\b|\bavoid\b|\bdon'?t\b|\bdo not\b|\bneed\b).*(morning|afternoon|evening|night|same day|recovery|recover|after|before|daily|weekly)/iu.test(
+      message,
+    )
+  ) {
+    return [
+      {
+        kind: "custom",
+        title: "Local learned scheduling preference",
+        detail: message,
+        strength: /(\bavoid\b|\bdon'?t\b|\bdo not\b|\bneed\b)/iu.test(message)
+          ? "hard_constraint"
+          : "soft_preference",
+        confidence: "medium",
+        applicabilityScope: /same day|strength|plyo|basketball|cardio|workout/iu.test(
+          message,
+        )
+          ? "activity"
+          : "global",
+        domain: /strength|plyo|basketball|cardio|workout|recovery/iu.test(message)
+          ? "fitness"
+          : null,
+        goalTitle: null,
+        activityTitle: /strength|plyo|basketball|cardio|workout/iu.test(message)
+          ? "fitness training"
+          : null,
+        temporalScope: null,
+        evidence: message,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function action(overrides: Partial<DeterministicAction>) {

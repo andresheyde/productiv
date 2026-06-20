@@ -38,6 +38,11 @@ async function requestStructuredOutput(
   input: StructuredJsonGenerationInput,
   attempt: number,
 ) {
+  const startedAt = Date.now();
+  console.log(
+    `[Ollama] ${input.schemaName} attempt ${attempt} started with ${ollamaModel}`,
+  );
+
   const response = await fetch(`${ollamaBaseUrl}/api/chat`, {
     method: "POST",
     headers: {
@@ -78,6 +83,11 @@ async function requestStructuredOutput(
   const payload = (await response.json().catch(() => null)) as
     | OllamaChatResponse
     | null;
+  const elapsedMs = Date.now() - startedAt;
+
+  console.log(
+    `[Ollama] ${input.schemaName} attempt ${attempt} finished in ${elapsedMs}ms with status ${response.status}`,
+  );
 
   if (!response.ok) {
     throw new Error(

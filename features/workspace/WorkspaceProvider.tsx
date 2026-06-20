@@ -281,6 +281,7 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       });
 
       setGoals((previousGoals) => upsertRecords(previousGoals, [goal]));
+      setMetrics(await fetchMetrics(sessionToken));
     },
     [sessionToken],
   );

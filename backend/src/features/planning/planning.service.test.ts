@@ -41,6 +41,21 @@ test("runPlanningTurn asks for clarification when the draft is incomplete", asyn
           mediumTermGoal: "medium",
         },
       },
+      schedulingPreferenceCandidates: [
+        {
+          kind: "custom",
+          title: "  Keep launch planning in the morning  ",
+          detail: "  Morning planning feels more sustainable.  ",
+          strength: "soft_preference",
+          confidence: "medium",
+          applicabilityScope: "goal",
+          domain: "work",
+          goalTitle: "Launch Productiv",
+          activityTitle: "launch planning",
+          temporalScope: null,
+          evidence: "I prefer planning Productiv in the morning.",
+        },
+      ],
       status: "needs_clarification",
     },
   ]);
@@ -60,6 +75,11 @@ test("runPlanningTurn asks for clarification when the draft is incomplete", asyn
   );
   assert.equal(result.draftPlanningState.mediumTermGoal, "Launch Productiv");
   assert.equal(result.draftPlanningState.confidenceFlags.mediumTermGoal, "medium");
+  assert.equal(result.schedulingPreferenceCandidates[0]?.applicabilityScope, "goal");
+  assert.equal(
+    result.schedulingPreferenceCandidates[0]?.title,
+    "Keep launch planning in the morning",
+  );
   assert.equal(result.generatedPlan, null);
 });
 
@@ -153,6 +173,116 @@ test("runPlanningTurn synthesizes a goal without optional barrier analysis", asy
   assert.equal(
     result.generatedPlan?.mediumTermGoal,
     "Secure a backend software developer job within 3 months",
+  );
+});
+
+test("runPlanningTurn breaks repeated activity clarification loops from the model", async () => {
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage:
+        "What specific activities or habits do you think would help you build muscle and lose weight?",
+      draftPlanningState: {
+        mediumTermGoal: "get in better shape",
+      },
+      status: "needs_clarification",
+    },
+    {
+      direction: "Improve athletic fitness",
+      mediumTermGoal:
+        "Build stamina for sports, dunk and sprint without pain, lose 20 pounds, and build visible muscle",
+      thirtyDayPerformanceGoals: [
+        "Complete strength training, plyo training, and cardio sessions consistently",
+      ],
+      fourteenDayPerformanceGoals: [
+        "Start a repeatable training rhythm across strength, plyo, and cardio",
+      ],
+      timeAvailability: "Not specified yet",
+      timeProtectionPlan: [],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+      constraints: [],
+      summary:
+        "Create a first fitness plan around strength training, plyometrics, and cardio.",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [
+      { role: "user", content: "I want to get in better shape." },
+      {
+        role: "assistant",
+        content: "What does getting in better shape mean to you?",
+      },
+      {
+        role: "user",
+        content:
+          "More stamina while playing sports, able to dunk and sprint with no pain and more powerfully. I want to lose 20 pounds while building muscle. I want a six pack.",
+      },
+      {
+        role: "assistant",
+        content:
+          "What specific activities or habits do you think would help you build muscle and lose weight?",
+      },
+      {
+        role: "user",
+        content: [
+          "I need to spend time doing strength trainings - upper and lower",
+          "I need to do plyo training - sprints and jumping",
+          "I need to do consistent cardio - running/biking/jump roping",
+        ].join("\n"),
+      },
+    ],
+    currentDraftPlanningState: createEmptyDraftPlanningState(),
+  });
+
+  assert.equal(provider.calls.length, 2);
+  assert.equal(provider.calls[1]?.schemaName, "generated_plan");
+  assert.equal(result.status, "plan_ready");
+  assert.doesNotMatch(result.assistantMessage, /What specific activities/u);
+  assert.match(result.draftPlanningState.mediumTermGoal ?? "", /lose 20 pounds/u);
+  assert.deepEqual(result.draftPlanningState.direction, [
+    "Strength trainings - upper and lower",
+    "Plyo training - sprints and jumping",
+    "Cardio - running/biking/jump roping",
+  ]);
+});
+
+test("runPlanningTurn keeps useful model clarifications instead of forcing a gated flow", async () => {
+  const completeDraft = {
+    ...createEmptyDraftPlanningState(),
+    direction: ["Apply to roles"],
+    mediumTermGoal: "Secure a software developer job offer within 3 months",
+    thirtyDayPerformanceGoals: ["Apply to 100 software developer jobs"],
+  };
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "When can you realistically work on this each week?",
+      draftPlanningState: completeDraft,
+      status: "needs_clarification",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [
+      {
+        role: "user",
+        content:
+          "I want to get a software developer job and apply to 100 jobs.",
+      },
+    ],
+    currentDraftPlanningState: createEmptyDraftPlanningState(),
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.equal(provider.calls[0]?.schemaName, "planning_turn_response");
+  assert.equal(result.status, "needs_clarification");
+  assert.equal(result.generatedPlan, null);
+  assert.equal(
+    result.assistantMessage,
+    "When can you realistically work on this each week?",
   );
 });
 

@@ -17,6 +17,7 @@ test("planning turn schema requires the assistant message, draft state, and stat
     "assistantMessage",
     "draftPlanningState",
     "status",
+    "schedulingPreferenceCandidates",
   ]);
   assert.deepEqual(
     PLANNING_TURN_RESPONSE_SCHEMA.properties.status.enum,
@@ -53,6 +54,8 @@ test("planning instructions stay focused on fast goal intake", () => {
   assert.match(instructions, /Ask one focused question at a time/u);
   assert.match(instructions, /Never tell the user a goal was created/u);
   assert.match(instructions, /status to plan_ready/u);
+  assert.match(instructions, /schedulingPreferenceCandidates/u);
+  assert.match(instructions, /goal or activity scope/u);
   assert.match(instructions, /valid JSON/u);
 });
 

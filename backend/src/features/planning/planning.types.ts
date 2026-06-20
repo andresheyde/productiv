@@ -1,3 +1,5 @@
+import type { SchedulingPreferenceCandidate } from "../scheduling-context/scheduling-context.types.ts";
+
 export type PlanningFieldConfidence = "low" | "medium" | "high";
 
 export type PlanningConfidenceFlags = {
@@ -57,12 +59,14 @@ export type PlanningTurnResponse = {
   assistantMessage: string;
   draftPlanningState: DraftPlanningState;
   generatedPlan: GeneratedPlan | null;
+  schedulingPreferenceCandidates: SchedulingPreferenceCandidate[];
   status: PlanningTurnStatus;
 };
 
 export type PlanningTurnExtraction = {
   assistantMessage: string;
   draftPlanningState: DraftPlanningState;
+  schedulingPreferenceCandidates: SchedulingPreferenceCandidate[];
   status: Exclude<PlanningTurnStatus, "error">;
 };
 

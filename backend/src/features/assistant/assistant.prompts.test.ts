@@ -84,6 +84,7 @@ test("assistant schemas require model response fields used by the service", () =
     "contextSummary",
     "navigationHint",
     "actions",
+    "schedulingPreferenceCandidates",
   ]);
   assert.equal(WORK_LOG_SCHEMA.type, "object");
   assert.deepEqual(WORK_LOG_SCHEMA.required, [
@@ -94,6 +95,7 @@ test("assistant schemas require model response fields used by the service", () =
     "goalId",
     "taskId",
     "progressUpdates",
+    "schedulingPreferenceCandidates",
   ]);
   assert.equal(SCHEDULE_REFLECTION_SCHEMA.type, "object");
   assert.deepEqual(SCHEDULE_REFLECTION_SCHEMA.required, [
@@ -129,6 +131,10 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
   assert.match(instructions, /propose_schedule_goal_focus/u);
   assert.match(instructions, /confirm_schedule_proposal/u);
   assert.match(instructions, /Never say a record was created/u);
+  assert.match(instructions, /default hours metric/u);
+  assert.match(instructions, /success-criteria metrics/u);
+  assert.match(instructions, /schedulingPreferenceCandidates/u);
+  assert.match(instructions, /applicabilityScope/u);
   assert.match(instructions, /Return valid JSON/u);
 });
 
@@ -137,7 +143,10 @@ test("work log instructions require numeric metric evidence", () => {
 
   assert.match(instructions, /logging work in natural language/u);
   assert.match(instructions, /Do not guess amounts/u);
+  assert.match(instructions, /time-spent phrases/u);
+  assert.match(instructions, /hours metric/u);
   assert.match(instructions, /progressUpdates empty/u);
+  assert.match(instructions, /schedulingPreferenceCandidates/u);
 });
 
 test("schedule reflection instructions capture lived schedule feedback", () => {
@@ -281,6 +290,21 @@ test("normalizeAssistantModelResponse drops malformed actions", () => {
         isActive: "yes",
       },
     ],
+    schedulingPreferenceCandidates: [
+      {
+        kind: "custom",
+        title: "  Avoid strength and plyo together  ",
+        detail: "  Keep plyometrics away from heavy strength days.  ",
+        strength: "hard_constraint",
+        confidence: "high",
+        applicabilityScope: "goal",
+        domain: "fitness",
+        goalTitle: "Dunk training",
+        activityTitle: "plyometrics",
+        temporalScope: null,
+        evidence: "Don't put strength and plyo on the same day.",
+      },
+    ],
   });
 
   assert.equal(result.actions.length, 1);
@@ -290,6 +314,21 @@ test("normalizeAssistantModelResponse drops malformed actions", () => {
   assert.equal(result.actions[0]?.definition, null);
   assert.equal(result.actions[0]?.currentValue, null);
   assert.equal(result.actions[0]?.isActive, null);
+  assert.deepEqual(result.schedulingPreferenceCandidates, [
+    {
+      kind: "custom",
+      title: "Avoid strength and plyo together",
+      detail: "Keep plyometrics away from heavy strength days.",
+      strength: "hard_constraint",
+      confidence: "high",
+      applicabilityScope: "goal",
+      domain: "fitness",
+      goalTitle: "Dunk training",
+      activityTitle: "plyometrics",
+      temporalScope: null,
+      evidence: "Don't put strength and plyo on the same day.",
+    },
+  ]);
 });
 
 test("normalizeAssistantModelResponse sanitizes goal focus action fields", () => {
@@ -394,6 +433,21 @@ test("normalizeWorkLogModelResponse extracts valid progress updates", () => {
       { metricId: "metric-3", deltaValue: Number.POSITIVE_INFINITY, note: null },
       "not-object",
     ],
+    schedulingPreferenceCandidates: [
+      {
+        kind: "preferred_work_period",
+        title: "Prefer morning work logs",
+        detail: "Morning work sessions seem to fit best.",
+        strength: "soft_preference",
+        confidence: "medium",
+        applicabilityScope: "global",
+        domain: null,
+        goalTitle: null,
+        activityTitle: null,
+        temporalScope: null,
+        evidence: "I worked better this morning.",
+      },
+    ],
   });
 
   assert.deepEqual(result, {
@@ -406,6 +460,21 @@ test("normalizeWorkLogModelResponse extracts valid progress updates", () => {
     progressUpdates: [
       { metricId: "metric-1", deltaValue: 2, note: "focused work" },
       { metricId: "metric-2", deltaValue: 1, note: null },
+    ],
+    schedulingPreferenceCandidates: [
+      {
+        kind: "preferred_work_period",
+        title: "Prefer morning work logs",
+        detail: "Morning work sessions seem to fit best.",
+        strength: "soft_preference",
+        confidence: "medium",
+        applicabilityScope: "global",
+        domain: null,
+        goalTitle: null,
+        activityTitle: null,
+        temporalScope: null,
+        evidence: "I worked better this morning.",
+      },
     ],
   });
 });
@@ -515,11 +584,13 @@ test("normalizeWorkLogModelResponse handles absent progress updates and invalid 
     goalId: 99,
     taskId: "   ",
     progressUpdates: undefined,
+    schedulingPreferenceCandidates: undefined,
   });
 
   assert.equal(result.goalId, null);
   assert.equal(result.taskId, null);
   assert.deepEqual(result.progressUpdates, []);
+  assert.deepEqual(result.schedulingPreferenceCandidates, []);
 });
 
 test("normalizeWorkLogModelResponse rejects malformed required fields", () => {
