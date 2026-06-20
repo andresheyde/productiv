@@ -1,6 +1,7 @@
 import { Pressable, Text, TextInput, View } from "react-native";
 import { EVENT_EDITOR_POPUP_HEIGHT } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
+import { formatLocaleDateTime } from "@/features/shared/utils/dateTime";
 
 type EventEditorPopupProps = {
   selectedEvent: CalendarEvent;
@@ -70,7 +71,7 @@ export default function EventEditorPopup({
         }}
       />
       <Text style={{ color: "#5f6b76", lineHeight: 20 }}>
-        {`Start: ${selectedEvent.startTime.toLocaleString()}\nEnd: ${selectedEvent.endTime.toLocaleString()}`}
+        {`Start: ${formatLocaleDateTime(selectedEvent.startTime)}\nEnd: ${formatLocaleDateTime(selectedEvent.endTime)}`}
       </Text>
       <TextInput
         value={draftDescription}

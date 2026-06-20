@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "@/features/auth/AuthProvider";
+import { formatLocaleDateOrDateTime } from "@/features/shared/utils/dateTime";
 import WorkspaceAuthGate from "@/features/workspace/components/WorkspaceAuthGate";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
 import type { Task } from "@/features/workspace/types";
@@ -248,7 +249,10 @@ export default function TasksScreen() {
                     color: "#5a6762",
                   }}
                 >
-                  Due: {task.dueAt ? formatDate(task.dueAt) : "No due date"}
+                  Due:{" "}
+                  {task.dueAt
+                    ? formatLocaleDateOrDateTime(task.dueAt)
+                    : "No due date"}
                 </Text>
                 <Text
                   style={{
@@ -282,11 +286,11 @@ export default function TasksScreen() {
                     borderTopColor: "#e6dccd",
                   }}
                 >
-                  <LabeledField label="Due date or time (ISO or YYYY-MM-DD)">
+                  <LabeledField label="Due date or local time">
                     <TextInput
                       value={draftDueAt}
                       onChangeText={setDraftDueAt}
-                      placeholder="2026-06-30T17:00:00.000Z"
+                      placeholder="2026-06-30 or 2026-06-30T17:00:00"
                       placeholderTextColor="#8c9793"
                       style={singleLineInputStyle}
                     />
@@ -389,16 +393,6 @@ export default function TasksScreen() {
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function formatDate(value: string) {
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleString();
 }
 
 function TaskChip({ label }: { label: string }) {

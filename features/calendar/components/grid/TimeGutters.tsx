@@ -6,6 +6,7 @@ import {
   TIME_GUTTER_WIDTH,
   timeToY,
 } from "../../layout/calendarLayout";
+import { formatLocaleHour } from "@/features/shared/utils/dateTime";
 
 export default function TimeGutters() {
   return (
@@ -49,15 +50,9 @@ export default function TimeGutters() {
 }
 
 function hourToString(hour: number) {
-  if (hour === 0 || hour === 24) {
-    return "12am";
-  } else if (hour < 12) {
-    return `${hour}am`;
-  } else if (hour === 12) {
-    return "12pm";
-  } else if (hour <= 23) {
-    return `${hour - 12}pm`;
-  } else {
+  if (hour < 0 || hour > 23) {
     throw new Error(`Invalid hour: ${hour}`);
   }
+
+  return formatLocaleHour(hour);
 }

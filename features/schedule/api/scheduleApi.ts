@@ -1,4 +1,5 @@
 import { apiRequest } from "@/features/shared/api/request";
+import { parseDateForDisplay } from "@/features/shared/utils/dateTime";
 
 export type BackendScheduleEvent = {
   id: string;
@@ -62,11 +63,18 @@ function mapGoogleEventToScheduleEvent(
     return null;
   }
 
+  const startTime = parseDateForDisplay(startSource);
+  const endTime = parseDateForDisplay(endSource);
+
+  if (!startTime || !endTime) {
+    return null;
+  }
+
   return {
     id: event.id,
     title: event.summary?.trim() || "Untitled event",
-    startTime: new Date(startSource),
-    endTime: new Date(endSource),
+    startTime,
+    endTime,
     allDay: !event.start?.dateTime || !event.end?.dateTime,
     description: event.description?.trim() || "",
     sourceCalendarId: event.sourceCalendarId ?? "primary",

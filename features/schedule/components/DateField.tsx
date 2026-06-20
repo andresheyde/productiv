@@ -1,5 +1,6 @@
-import { format } from "date-fns";
 import { Pressable, Text, View } from "react-native";
+
+import { formatLocaleDate } from "@/features/shared/utils/dateTime";
 
 type DateFieldProps = {
   label: string;
@@ -37,7 +38,12 @@ export default function DateField({ label, value, onPress }: DateFieldProps) {
             fontWeight: "700",
           }}
         >
-          {format(value, "EEEE, MMMM d, yyyy")}
+          {formatLocaleDate(value, {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })}
         </Text>
       </Pressable>
     </View>

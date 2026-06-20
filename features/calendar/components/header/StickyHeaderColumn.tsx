@@ -1,10 +1,11 @@
-import { format, isEqual } from "date-fns";
+import { isEqual } from "date-fns";
 import { Text, View } from "react-native";
 import {
   HEADER_BUTTON_BAR_HEIGHT,
   STICKY_HEADER_HEIGHT,
   TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
+import { formatLocaleDate } from "@/features/shared/utils/dateTime";
 
 type StickyHeaderColumnProps = {
   today: Date;
@@ -50,7 +51,7 @@ export default function StickyHeaderColumn({
         }}
         numberOfLines={1}
       >
-        {format(date, "EEE")}
+        {formatLocaleDate(date, { weekday: "short" })}
       </Text>
       <Text
         style={{
@@ -61,7 +62,7 @@ export default function StickyHeaderColumn({
           color: "#16423c",
         }}
       >
-        {format(date, "d")}
+        {formatLocaleDate(date, { day: "numeric" })}
       </Text>
     </View>
   );

@@ -1,7 +1,8 @@
-import { format, isBefore } from "date-fns";
+import { isBefore } from "date-fns";
 import { FlatList, Pressable, Text, View } from "react-native";
 
 import type { PickerTarget } from "@/features/schedule/types";
+import { formatLocaleDate } from "@/features/shared/utils/dateTime";
 
 type WebDateSelectorProps = {
   pickerTarget: PickerTarget;
@@ -59,14 +60,14 @@ export default function WebDateSelector({
                   fontWeight: "700",
                 }}
               >
-                {format(item, "EEE")}
+                {formatLocaleDate(item, { weekday: "short" })}
               </Text>
               <Text
                 style={{
                   color: isSelected ? "#d9e7e3" : "#5f6b76",
                 }}
               >
-                {format(item, "MMM d")}
+                {formatLocaleDate(item, { month: "short", day: "numeric" })}
               </Text>
             </Pressable>
           );

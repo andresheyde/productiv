@@ -1,7 +1,7 @@
-import { format } from "date-fns";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import type { BackendScheduleEvent } from "@/features/schedule/api/scheduleApi";
+import { formatLocaleDateTime } from "@/features/shared/utils/dateTime";
 
 type EventsPreviewCardProps = {
   events: BackendScheduleEvent[];
@@ -107,10 +107,10 @@ export default function EventsPreviewCard({
             {event.title}
           </Text>
           <Text style={{ color: "#5f6b76" }}>
-            Start: {format(event.startTime, "EEE, MMM d • h:mm a")}
+            Start: {formatLocaleDateTime(event.startTime)}
           </Text>
           <Text style={{ color: "#5f6b76" }}>
-            End: {format(event.endTime, "EEE, MMM d • h:mm a")}
+            End: {formatLocaleDateTime(event.endTime)}
           </Text>
         </View>
       ))}

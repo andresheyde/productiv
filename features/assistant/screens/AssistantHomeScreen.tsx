@@ -21,6 +21,10 @@ import { usePathname } from "expo-router";
 import { useAuth } from "@/features/auth/AuthProvider";
 import { connectGoogleCalendar } from "@/features/auth/googleAuth";
 import { fetchScheduleEvents } from "@/features/schedule/api/scheduleApi";
+import {
+  formatLocaleDate,
+  formatLocaleDateTime,
+} from "@/features/shared/utils/dateTime";
 import type {
   AssistantMessage,
   AssistantTurnMode,
@@ -835,7 +839,7 @@ function formatThreadUpdatedAt(value: string) {
     return "Recent chat";
   }
 
-  return `Updated ${parsed.toLocaleDateString(undefined, {
+  return `Updated ${formatLocaleDate(parsed, {
     month: "short",
     day: "numeric",
   })}`;
@@ -1785,24 +1789,15 @@ function normalizeProposalConflicts(
 }
 
 function formatProposalDateTime(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return formatLocaleDateTime(value);
 }
 
 function formatPreviewDay(value: Date) {
-  return new Intl.DateTimeFormat(undefined, {
+  return formatLocaleDate(value, {
     weekday: "short",
     month: "numeric",
     day: "numeric",
-  }).format(value);
+  });
 }
 
 function getProposalStatusColor(status: ScheduleProposal["status"]) {

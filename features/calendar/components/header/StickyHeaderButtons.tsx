@@ -1,6 +1,7 @@
-import { addDays, format, startOfDay } from "date-fns";
+import { addDays, startOfDay } from "date-fns";
 import { Pressable, Text, View } from "react-native";
 import { HEADER_BUTTON_BAR_HEIGHT } from "../../layout/calendarLayout";
+import { formatLocaleDate } from "@/features/shared/utils/dateTime";
 
 type StickyHeaderButtonsProps = {
   today: Date;
@@ -47,7 +48,7 @@ export default function StickyHeaderButtons({
           numberOfLines={1}
           style={{ fontWeight: "700", fontSize: 16, color: "#16423c" }}
         >
-          {format(startDate, "MMMM yyyy")}
+          {formatLocaleDate(startDate, { month: "long", year: "numeric" })}
         </Text>
       </View>
       <View
