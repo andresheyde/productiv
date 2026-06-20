@@ -44,6 +44,56 @@ test("deterministic provider returns assistant actions for local task messages",
   assert.match(response.actions[0]?.title ?? "", /review local workflow/i);
 });
 
+test("deterministic provider extracts week-boundary scheduling preferences", async () => {
+  const provider = new DeterministicAiProvider();
+  const response = await provider.generateJson<{
+    schedulingPreferenceCandidates: Array<{
+      applicabilityScope: string;
+      kind: string;
+      title: string;
+    }>;
+  }>({
+    instructions: "Return assistant JSON.",
+    input: [
+      "Latest user message:",
+      "My scheduling week runs from Monday through Sunday.",
+      "",
+      "Recent conversation:",
+      "[]",
+      "",
+      "Current goals:",
+      "[]",
+      "",
+      "Current tasks:",
+      "[]",
+      "",
+      "Current metrics:",
+      "[]",
+      "",
+      "Recent work logs:",
+      "[]",
+      "",
+      "Saved personal scheduling context:",
+      "{}",
+      "",
+      "Pending schedule proposals that still need user confirmation:",
+      "[]",
+    ].join("\n"),
+    schemaName: "assistant_turn",
+    schema: {},
+  });
+
+  assert.equal(response.schedulingPreferenceCandidates[0]?.kind, "custom");
+  assert.equal(
+    response.schedulingPreferenceCandidates[0]?.title,
+    "Preferred scheduling week boundary",
+  );
+  assert.equal(
+    response.schedulingPreferenceCandidates[0]?.applicabilityScope,
+    "global",
+  );
+});
+
 test("deterministic provider extracts work-log metric progress", async () => {
   const provider = new DeterministicAiProvider();
   const response = await provider.generateJson<{

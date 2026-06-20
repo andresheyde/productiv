@@ -1106,14 +1106,23 @@ async function applyAssistantAction(
       return;
     }
     case "update_task": {
-      if (!input.action.taskId) {
+      const taskId =
+        input.action.taskId ??
+        (input.action.title
+          ? findTaskByTitle(input.tasksById, input.action.title)?.id ?? null
+          : null);
+
+      if (!taskId) {
+        input.warnings.push(
+          "I couldn't update that task because I couldn't identify which task to change.",
+        );
         return;
       }
 
       const task = await patchTask(
         {
           userId: input.userId,
-          taskId: input.action.taskId,
+          taskId,
           goalId: input.action.goalId ?? undefined,
           title: input.action.title ?? undefined,
           description: input.action.description ?? undefined,
@@ -1136,6 +1145,8 @@ async function applyAssistantAction(
       if (task) {
         input.tasksById.set(task.id, task);
         input.sideEffects.tasks.push(task);
+      } else {
+        input.warnings.push("I couldn't update that task because it was not found.");
       }
       return;
     }
@@ -1280,7 +1291,9 @@ async function createProposalFromSchedulingActions(
   );
 
   if (scheduleDetails.length === 0) {
-    input.warnings.push("I couldn't save that scheduling proposal because the work item or time window was incomplete.");
+    input.warnings.push(
+      "I couldn't save that scheduling proposal because every calendar proposal needs a specific work item plus exact start and end times.",
+    );
     return;
   }
 

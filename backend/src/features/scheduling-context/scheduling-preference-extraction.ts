@@ -64,6 +64,8 @@ export const SCHEDULING_PREFERENCE_CANDIDATE_ARRAY_SCHEMA = {
 export const SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE = [
   "Also return schedulingPreferenceCandidates from the latest user message.",
   "A scheduling preference candidate is only about when, how often, spacing, constraints, recovery needs, energy patterns, or conditions for doing work or activities.",
+  "Extract durable week-boundary preferences such as 'my scheduling week is Monday through Sunday' or 'I plan weeks from Monday to Sunday' as a custom global soft_preference with a clear title and detail.",
+  "Do not extract one-off date ranges like 'schedule from tomorrow till Tuesday' as durable preferences; those are request-specific scheduling horizons.",
   "Do not extract ordinary goals, tasks, activities, outcomes, or motivation as scheduling preferences.",
   "Use applicabilityScope to avoid overgeneralizing: global for broad life/work preferences, domain for broad areas like fitness or study, goal for one specific goal, activity for one recurring activity, and temporary for short-lived rules.",
   "Goal-specific examples such as not combining strength training and plyometrics on the same day should use applicabilityScope goal or activity, not global.",

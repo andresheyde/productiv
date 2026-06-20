@@ -281,6 +281,24 @@ function buildScheduleReflectionResponse(input: string) {
 }
 
 function buildDeterministicSchedulingPreferenceCandidates(message: string) {
+  if (/\b(week|weeks|scheduling week|planning week)\b.*\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b.*\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/iu.test(message)) {
+    return [
+      {
+        kind: "custom",
+        title: "Preferred scheduling week boundary",
+        detail: message,
+        strength: "soft_preference",
+        confidence: "medium",
+        applicabilityScope: "global",
+        domain: null,
+        goalTitle: null,
+        activityTitle: null,
+        temporalScope: null,
+        evidence: message,
+      },
+    ];
+  }
+
   if (
     /(\bprefer\b|\bavoid\b|\bdon'?t\b|\bdo not\b|\bneed\b).*(morning|afternoon|evening|night|same day|recovery|recover|after|before|daily|weekly)/iu.test(
       message,

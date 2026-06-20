@@ -240,7 +240,9 @@ export default function TasksScreen() {
                     task.linkedCalendarEventId ? "Scheduled" : "Not scheduled"
                   }
                 />
-                <TaskChip label={`Intent: ${task.scheduleIntent}`} />
+                <TaskChip
+                  label={`Scheduling: ${formatScheduleIntent(task.scheduleIntent)}`}
+                />
               </View>
 
               <View style={{ gap: 6 }}>
@@ -356,7 +358,7 @@ export default function TasksScreen() {
                         <StatusButton
                           key={intent}
                           isActive={draftScheduleIntent === intent}
-                          label={intent}
+                          label={formatScheduleIntent(intent)}
                           onPress={() => setDraftScheduleIntent(intent)}
                         />
                       ))}
@@ -469,6 +471,17 @@ function StatusButton({
       </Text>
     </Pressable>
   );
+}
+
+function formatScheduleIntent(intent: Task["scheduleIntent"]) {
+  switch (intent) {
+    case "schedule_now":
+      return "Needs calendar time";
+    case "someday":
+      return "Someday";
+    case "unscheduled":
+      return "Track only";
+  }
 }
 
 const singleLineInputStyle = {

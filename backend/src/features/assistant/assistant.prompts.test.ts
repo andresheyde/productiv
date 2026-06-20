@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { AssistantActionType } from "./assistant.types.ts";
+import { SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE } from "../scheduling-context/scheduling-preference-extraction.ts";
 import {
   ASSISTANT_TURN_SCHEMA,
   SCHEDULE_REFLECTION_SCHEMA,
@@ -122,10 +123,19 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
   assert.match(instructions, /later reflection data/u);
   assert.match(instructions, /one separate calendar event per block/u);
   assert.match(instructions, /next Sunday-through-Saturday/u);
+  assert.match(instructions, /saved week-boundary preference/u);
+  assert.match(instructions, /Explicit date ranges/u);
+  assert.match(instructions, /from tomorrow till Tuesday/u);
   assert.match(instructions, /schedule-relevant calendar events/u);
   assert.match(instructions, /Only create or update goals/u);
   assert.match(instructions, /Do not auto-create tasks from goals/u);
   assert.match(instructions, /goal-focus scheduling/u);
+  assert.match(instructions, /generate my schedule for next week/u);
+  assert.match(instructions, /scheduling horizon/u);
+  assert.match(instructions, /candidate startTime and endTime/u);
+  assert.match(instructions, /Distinguish task tracking from calendar placement/u);
+  assert.match(instructions, /due date, deadline, date range/u);
+  assert.match(instructions, /exact startTime and endTime/u);
   assert.match(instructions, /When enough information exists/u);
   assert.match(instructions, /propose_schedule_task/u);
   assert.match(instructions, /propose_schedule_goal_focus/u);
@@ -136,6 +146,25 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
   assert.match(instructions, /schedulingPreferenceCandidates/u);
   assert.match(instructions, /applicabilityScope/u);
   assert.match(instructions, /Return valid JSON/u);
+});
+
+test("scheduling preference extraction captures durable week boundaries", () => {
+  assert.match(
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+    /durable week-boundary preferences/u,
+  );
+  assert.match(
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+    /my scheduling week is Monday through Sunday/u,
+  );
+  assert.match(
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+    /Do not extract one-off date ranges/u,
+  );
+  assert.match(
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+    /schedule from tomorrow till Tuesday/u,
+  );
 });
 
 test("work log instructions require numeric metric evidence", () => {
