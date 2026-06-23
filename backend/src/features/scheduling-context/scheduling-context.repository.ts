@@ -466,6 +466,10 @@ export async function createDerivedSchedulingSuggestionsFromCandidates(
   const createdSuggestions: DerivedSchedulingSuggestionRecord[] = [];
 
   for (const candidate of input.candidates) {
+    if (!shouldCreateDerivedSuggestionFromCandidate(candidate)) {
+      continue;
+    }
+
     const title = candidate.title.trim();
     const detail = candidate.detail.trim();
 
@@ -1378,6 +1382,53 @@ function buildScopedSchedulingSuggestionKey(input: {
     normalizeDedupeValue(getMetadataString(input.metadata, "activityTitle") ?? ""),
     normalizeDedupeValue(getMetadataString(input.metadata, "temporalScope") ?? ""),
   ].join(":");
+}
+
+function shouldCreateDerivedSuggestionFromCandidate(
+  candidate: SchedulingPreferenceCandidate,
+) {
+  if (candidate.applicabilityScope === "temporary") {
+    return false;
+  }
+
+  if (candidate.confidence === "low") {
+    return false;
+  }
+
+  const evidenceText = [
+    candidate.title,
+    candidate.detail,
+    candidate.evidence ?? "",
+    candidate.temporalScope ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (!hasDurableSchedulingCue(evidenceText)) {
+    return false;
+  }
+
+  return !looksLikeOneOffSchedulingPlacement(evidenceText);
+}
+
+function hasDurableSchedulingCue(value: string) {
+  return /\b(always|usually|generally|normally|prefer|preferred|best|every|each|daily|weekly|weekdays?|weekends?|mornings?|afternoons?|evenings?|nightly|recurring|routine|habit|ongoing|regular|consistent|consistently|avoid|never|separate|space|same day|after waking|before lunch|after lunch|before work|after work|on mondays|on tuesdays|on wednesdays|on thursdays|on fridays|on saturdays|on sundays)\b/u.test(
+    value,
+  );
+}
+
+function looksLikeOneOffSchedulingPlacement(value: string) {
+  if (
+    !/\b(schedule|scheduled|scheduling|place|placed|block|blocked|add|added)\b/u.test(
+      value,
+    )
+  ) {
+    return false;
+  }
+
+  return !/\b(every|each|daily|weekly|weekdays?|weekends?|recurring|routine|habit|ongoing|regular|usually|prefer|preferred|always|on mondays|on tuesdays|on wednesdays|on thursdays|on fridays|on saturdays|on sundays)\b/u.test(
+    value,
+  );
 }
 
 function getMetadataString(metadata: Record<string, unknown>, key: string) {

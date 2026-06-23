@@ -318,6 +318,14 @@ function mergeUniqueStrings(left: string[], right: string[]) {
 }
 
 function buildMissingPlanRequirementsMessage(missingRequirements: string[]) {
+  if (
+    missingRequirements.length === 1 &&
+    missingRequirements[0] ===
+      "at least one activity, task, or focus area you want to include"
+  ) {
+    return "What activities, tasks, or focus areas do you want to include first for this goal? If you want help choosing, tell me and I can suggest a short set for you to approve.";
+  }
+
   return `I need one more concrete detail before I can create this goal: ${missingRequirements.join(
     " and ",
   )}.`;

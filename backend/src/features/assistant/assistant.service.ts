@@ -1543,7 +1543,10 @@ async function resolveScheduleActionDetails(
     return null;
   }
 
-  const title = input.action.title ?? task.title;
+  const rawTitle = input.action.title ?? task.title;
+  const title = formatScheduleBlockTitleForCalendar(rawTitle, {
+    fallbackTitle: task.title,
+  });
   const description = input.action.description ?? task.description ?? "";
 
   return {
@@ -1617,7 +1620,10 @@ function resolveGoalFocusForSchedulingAction(input: {
   }
 
   const focusArea = resolveGoalFocusArea(goal, input.action.focusId, input.action.title);
-  const title = input.action.title ?? focusArea?.title ?? goal.title;
+  const rawTitle = input.action.title ?? focusArea?.title ?? goal.title;
+  const title = formatScheduleBlockTitleForCalendar(rawTitle, {
+    fallbackTitle: focusArea?.title ?? goal.title,
+  });
   const description =
     input.action.description ??
     focusArea?.description ??
@@ -1642,6 +1648,104 @@ function resolveGoalFocusForSchedulingAction(input: {
       endTime: input.endTime.toISOString(),
     },
   };
+}
+
+export function formatScheduleBlockTitleForCalendar(
+  value: string,
+  options?: {
+    fallbackTitle?: string | null | undefined;
+  },
+) {
+  const rawTitle = (value.trim() || options?.fallbackTitle?.trim() || "").replace(
+    /\s+/gu,
+    " ",
+  );
+
+  if (!rawTitle) {
+    return "Focus block";
+  }
+
+  const specificFitnessTitle = getSpecificFitnessScheduleTitle(rawTitle);
+
+  if (specificFitnessTitle) {
+    return specificFitnessTitle;
+  }
+
+  const shortened = rawTitle
+    .replace(/[.?!]+$/u, "")
+    .replace(/^perform\s+/iu, "")
+    .replace(/^do\s+/iu, "")
+    .replace(/^schedule\s+/iu, "")
+    .replace(/^complete\s+(?:at least\s+)?(?:\d+\s+)?/iu, "")
+    .replace(/\s+every\b.*$/iu, "")
+    .replace(/\s+each\b.*$/iu, "")
+    .replace(/\s+(?:earlier|later)\s+in\s+the\s+(?:week|day)\b.*$/iu, "")
+    .replace(
+      /\s+for\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|this|next|\d{1,2})\b.*$/iu,
+      "",
+    )
+    .replace(/\s+for at least\b.*$/iu, "")
+    .replace(
+      /\s+(?:before|after)\s+(?:study|studying|practice|workout|work|lunch|waking|blocks?)\b.*$/iu,
+      "",
+    )
+    .replace(/\s+within\b.*$/iu, "")
+    .replace(/\s+in order to\b.*$/iu, "")
+    .replace(/\s+so that\b.*$/iu, "")
+    .replace(
+      /\s+to\s+(?:achieve|support|build|improve|increase|reduce|maintain|prepare)\b.*$/iu,
+      "",
+    )
+    .trim();
+
+  const title = shortened || rawTitle;
+
+  if (title.length <= 48) {
+    return capitalizeFirstCharacter(title);
+  }
+
+  return capitalizeFirstCharacter(truncateTitleAtWordBoundary(title, 48));
+}
+
+function getSpecificFitnessScheduleTitle(value: string) {
+  if (/\bworkout|workouts|exercise|physical activity\b/iu.test(value)) {
+    return "Workout";
+  }
+
+  if (/\bstrength training|heavy lifting|lifting\b/iu.test(value)) {
+    return "Strength training";
+  }
+
+  if (/\bcardio|conditioning|stamina\b/iu.test(value)) {
+    return "Conditioning";
+  }
+
+  if (/\bmobility|stretching|flexibility\b/iu.test(value)) {
+    return "Mobility";
+  }
+
+  return null;
+}
+
+function truncateTitleAtWordBoundary(value: string, maxLength: number) {
+  const words = value.split(" ");
+  let nextTitle = "";
+
+  for (const word of words) {
+    const candidate = nextTitle ? `${nextTitle} ${word}` : word;
+
+    if (candidate.length > maxLength) {
+      break;
+    }
+
+    nextTitle = candidate;
+  }
+
+  return nextTitle || value.slice(0, maxLength).trim();
+}
+
+function capitalizeFirstCharacter(value: string) {
+  return value.length === 0 ? value : `${value[0]?.toUpperCase()}${value.slice(1)}`;
 }
 
 function resolveScheduleDetailsFromProposalOperation(

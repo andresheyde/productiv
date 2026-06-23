@@ -47,7 +47,10 @@ test("planning instructions stay focused on fast goal intake", () => {
 
   assert.match(instructions, /fast planning intake/u);
   assert.match(instructions, /concrete medium-term outcome/u);
+  assert.match(instructions, /only user-stated activities/u);
   assert.match(instructions, /What things do you need to do/u);
+  assert.match(instructions, /losing fat, building strength/u);
+  assert.match(instructions, /help choosing/u);
   assert.match(instructions, /different ways they need to spend time/u);
   assert.match(instructions, /Do not require barrier analysis/u);
   assert.match(instructions, /later reflection data/u);

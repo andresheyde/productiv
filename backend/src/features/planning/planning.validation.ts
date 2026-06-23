@@ -125,12 +125,10 @@ export function getMissingPlanRequirements(draft: DraftPlanningState): string[] 
     missingFields.push("a concrete goal outcome");
   }
 
-  if (
-    draft.direction.length === 0 &&
-    draft.thirtyDayPerformanceGoals.length === 0 &&
-    draft.fourteenDayPerformanceGoals.length === 0
-  ) {
-    missingFields.push("at least one thing you need to do to achieve it");
+  if (draft.direction.length === 0) {
+    missingFields.push(
+      "at least one activity, task, or focus area you want to include",
+    );
   }
 
   return missingFields;

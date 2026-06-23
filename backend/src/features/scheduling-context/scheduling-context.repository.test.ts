@@ -136,6 +136,96 @@ test("createDerivedSchedulingSuggestionsFromCandidates dedupes matching scoped c
   assert.equal(db.insertedRows.length, 1);
 });
 
+test("createDerivedSchedulingSuggestionsFromCandidates ignores one-off schedule placements", async () => {
+  const db = new FakeSchedulingDb();
+  const suggestions = await createDerivedSchedulingSuggestionsFromCandidates(
+    {
+      userId: "user-1",
+      candidates: [
+        {
+          kind: "custom",
+          title: "Apartment cleaning scheduled Sunday night",
+          detail:
+            "Schedule apartment cleaning for Sunday night around 8 PM based on expected arrival time.",
+          strength: "soft_preference",
+          confidence: "medium",
+          applicabilityScope: "activity",
+          domain: "home",
+          goalTitle: null,
+          activityTitle: "Apartment cleaning",
+          temporalScope: "Sunday night",
+          evidence: "Can you schedule apartment cleaning Sunday night?",
+        },
+        {
+          kind: "preferred_work_period",
+          title: "Workout sessions earlier in the day",
+          detail:
+            "Schedule weekday workout sessions at least one hour after waking and before lunch.",
+          strength: "soft_preference",
+          confidence: "medium",
+          applicabilityScope: "goal",
+          domain: "fitness",
+          goalTitle: "Reduce body fat and increase strength",
+          activityTitle: "Workout",
+          temporalScope: "weekday mornings",
+          evidence:
+            "I want weekday workouts at least one hour after waking and before lunch.",
+        },
+      ],
+      origin: "assistant_turn",
+      goalId: "goal-1",
+      goalTitle: "Reduce body fat and increase strength",
+    },
+    db,
+  );
+
+  assert.equal(suggestions.length, 1);
+  assert.equal(suggestions[0]?.title, "Workout sessions earlier in the day");
+  assert.equal(db.insertedRows.length, 1);
+});
+
+test("createDerivedSchedulingSuggestionsFromCandidates ignores temporary or low-confidence candidates", async () => {
+  const db = new FakeSchedulingDb();
+  const suggestions = await createDerivedSchedulingSuggestionsFromCandidates(
+    {
+      userId: "user-1",
+      candidates: [
+        {
+          kind: "custom",
+          title: "Use Tuesday afternoon this week",
+          detail: "This week, Tuesday afternoon is open for studying.",
+          strength: "soft_preference",
+          confidence: "medium",
+          applicabilityScope: "temporary",
+          domain: "study",
+          goalTitle: null,
+          activityTitle: "Studying",
+          temporalScope: "this week",
+          evidence: "This week Tuesday afternoon is open.",
+        },
+        {
+          kind: "preferred_work_period",
+          title: "Maybe late evenings work",
+          detail: "The user may prefer late evenings.",
+          strength: "soft_preference",
+          confidence: "low",
+          applicabilityScope: "global",
+          domain: null,
+          goalTitle: null,
+          activityTitle: null,
+          temporalScope: null,
+          evidence: "Ambiguous mention of evenings.",
+        },
+      ],
+      origin: "assistant_turn",
+    },
+    db,
+  );
+
+  assert.equal(suggestions.length, 0);
+  assert.equal(db.insertedRows.length, 0);
+});
+
 function parseJsonObject(value: unknown) {
   if (typeof value !== "string") {
     return {};

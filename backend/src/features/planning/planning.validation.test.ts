@@ -203,7 +203,7 @@ test("canGeneratePlan requires only core trackable goal details", () => {
   assert.equal(canGeneratePlan(emptyDraft), false);
   assert.deepEqual(getMissingPlanRequirements(emptyDraft), [
     "a concrete goal outcome",
-    "at least one thing you need to do to achieve it",
+    "at least one activity, task, or focus area you want to include",
   ]);
 
   const withMediumTermGoal = {
@@ -212,21 +212,23 @@ test("canGeneratePlan requires only core trackable goal details", () => {
   };
   assert.equal(canGeneratePlan(withMediumTermGoal), false);
   assert.deepEqual(getMissingPlanRequirements(withMediumTermGoal), [
-    "at least one thing you need to do to achieve it",
+    "at least one activity, task, or focus area you want to include",
   ]);
 
   const withShortGoal = {
     ...withMediumTermGoal,
     fourteenDayPerformanceGoals: ["Finish onboarding"],
   };
-  assert.equal(canGeneratePlan(withShortGoal), true);
-  assert.deepEqual(getMissingPlanRequirements(withShortGoal), []);
+  assert.equal(canGeneratePlan(withShortGoal), false);
+  assert.deepEqual(getMissingPlanRequirements(withShortGoal), [
+    "at least one activity, task, or focus area you want to include",
+  ]);
 
   const withTime = {
     ...withShortGoal,
     timeAvailability: "Weekday evenings",
   };
-  assert.equal(canGeneratePlan(withTime), true);
+  assert.equal(canGeneratePlan(withTime), false);
 
   const withActivity = {
     ...withMediumTermGoal,
@@ -236,7 +238,8 @@ test("canGeneratePlan requires only core trackable goal details", () => {
   assert.deepEqual(getMissingPlanRequirements(withActivity), []);
 
   const withProtectedTime = {
-    ...withTime,
+    ...withActivity,
+    timeAvailability: "Weekday evenings",
     timeProtectionPlan: ["Tuesday 7pm to 9pm"],
   };
   assert.equal(canGeneratePlan(withProtectedTime), true);

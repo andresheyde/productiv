@@ -119,7 +119,13 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
 
   assert.match(instructions, /Identify the user's intent first/u);
   assert.match(instructions, /minimum missing information/u);
-  assert.match(instructions, /do not require barrier analysis/u);
+  assert.match(instructions, /Do not require barrier analysis/u);
+  assert.match(instructions, /user-stated activity/u);
+  assert.match(instructions, /focus blocks/u);
+  assert.match(instructions, /losing fat, visible abs/u);
+  assert.match(instructions, /earlier in the week/u);
+  assert.match(instructions, /short activity names/u);
+  assert.match(instructions, /two or three candidate schedules/u);
   assert.match(instructions, /later reflection data/u);
   assert.match(instructions, /one separate calendar event per block/u);
   assert.match(instructions, /next Sunday-through-Saturday/u);
@@ -160,6 +166,14 @@ test("scheduling preference extraction captures durable week boundaries", () => 
   assert.match(
     SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
     /Do not extract one-off date ranges/u,
+  );
+  assert.match(
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+    /one task was scheduled in one slot/u,
+  );
+  assert.match(
+    SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
+    /Workout or study timing rules/u,
   );
   assert.match(
     SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,

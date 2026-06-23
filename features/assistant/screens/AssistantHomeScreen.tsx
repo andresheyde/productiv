@@ -14,6 +14,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
@@ -274,252 +275,162 @@ export default function AssistantHomeScreen() {
             gap: 12,
           }}
         >
-          <View
-            style={{
-              padding: 16,
-              borderRadius: 24,
-              backgroundColor: "#fffaf2",
-              borderWidth: 1,
-              borderColor: "#dcd2c2",
-              gap: 12,
-            }}
-          >
+          {isAuthenticated ? (
             <View
               style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
+                borderRadius: 18,
+                backgroundColor: "#fffaf2",
+                borderWidth: 1,
+                borderColor: "#dcd2c2",
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                gap: 10,
               }}
             >
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text
-                  style={{
-                    fontSize: 22,
-                    fontWeight: "700",
-                    color: "#132521",
-                  }}
-                >
-                  Productiv Chat
-                </Text>
-                <Text
-                  style={{
-                    color: "#5a6762",
-                    lineHeight: 20,
-                  }}
-                >
-                  Use chat to define goals, add tasks, log work, update progress,
-                  and place things on your calendar.
-                </Text>
-              </View>
               <View
                 style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  borderRadius: 999,
-                  backgroundColor:
-                    !isAuthenticated || composerMode === "work_log"
-                      ? "#efe1bc"
-                      : "#d7e7e1",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
                 }}
               >
                 <Text
                   style={{
-                    color: "#123a35",
-                    fontWeight: "700",
+                    color: "#31413c",
                     fontSize: 12,
+                    fontWeight: "800",
+                    textTransform: "uppercase",
                   }}
                 >
-                  {statusLabel}
+                  Chats
                 </Text>
-              </View>
-            </View>
-
-            {isAuthenticated ? (
-              <View style={{ gap: 10 }}>
                 <View
                   style={{
                     flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
+                    gap: 8,
                   }}
                 >
-                  <Text
+                  <Pressable
+                    onPress={() => {
+                      void handleCreateThread();
+                    }}
+                    disabled={isLoading || isSendingMessage}
                     style={{
-                      color: "#31413c",
-                      fontSize: 12,
-                      fontWeight: "800",
-                      textTransform: "uppercase",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      backgroundColor:
+                        isLoading || isSendingMessage ? "#d6d0c6" : "#123a35",
                     }}
                   >
-                    Chats
-                  </Text>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      gap: 8,
-                    }}
-                  >
+                    <Text
+                      style={{
+                        color: "#f4f0e8",
+                        fontWeight: "800",
+                      }}
+                    >
+                      New chat
+                    </Text>
+                  </Pressable>
+                  {activeThread ? (
                     <Pressable
                       onPress={() => {
-                        void handleCreateThread();
+                        void handleDeleteActiveThread();
                       }}
                       disabled={isLoading || isSendingMessage}
                       style={{
                         paddingHorizontal: 12,
-                        paddingVertical: 9,
-                        borderRadius: 14,
+                        paddingVertical: 8,
+                        borderRadius: 12,
                         backgroundColor:
-                          isLoading || isSendingMessage ? "#d6d0c6" : "#123a35",
+                          deleteConfirmThreadId === activeThread.id
+                            ? "#f5c8c1"
+                            : "#efe9dd",
                       }}
                     >
                       <Text
                         style={{
-                          color: "#f4f0e8",
+                          color:
+                            deleteConfirmThreadId === activeThread.id
+                              ? "#7f2d24"
+                              : "#31413c",
                           fontWeight: "800",
                         }}
                       >
-                        New chat
+                        {deleteConfirmThreadId === activeThread.id
+                          ? "Confirm delete"
+                          : "Delete chat"}
                       </Text>
                     </Pressable>
-                    {activeThread ? (
-                      <Pressable
-                        onPress={() => {
-                          void handleDeleteActiveThread();
-                        }}
-                        disabled={isLoading || isSendingMessage}
-                        style={{
-                          paddingHorizontal: 12,
-                          paddingVertical: 9,
-                          borderRadius: 14,
-                          backgroundColor:
-                            deleteConfirmThreadId === activeThread.id
-                              ? "#f5c8c1"
-                              : "#efe9dd",
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color:
-                              deleteConfirmThreadId === activeThread.id
-                                ? "#7f2d24"
-                                : "#31413c",
-                            fontWeight: "800",
-                          }}
-                        >
-                          {deleteConfirmThreadId === activeThread.id
-                            ? "Confirm delete"
-                            : "Delete chat"}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
-
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{
-                    gap: 8,
-                    paddingRight: 4,
-                  }}
-                >
-                  {threads.length === 0 ? (
-                    <Text
-                      style={{
-                        color: "#5a6762",
-                        lineHeight: 20,
-                      }}
-                    >
-                      Start a new chat or send a message to create one.
-                    </Text>
                   ) : null}
-                  {threads.map((threadItem) => {
-                    const isActiveThread = threadItem.id === activeThread?.id;
-
-                    return (
-                      <Pressable
-                        key={threadItem.id}
-                        onPress={() => {
-                          void handleSelectThread(threadItem.id);
-                        }}
-                        disabled={isLoading || isSendingMessage}
-                        style={{
-                          width: 190,
-                          minHeight: 70,
-                          borderRadius: 16,
-                          borderWidth: 1,
-                          borderColor: isActiveThread ? "#123a35" : "#d8cfbf",
-                          backgroundColor: isActiveThread ? "#d7e7e1" : "#f6f1e8",
-                          paddingHorizontal: 12,
-                          paddingVertical: 10,
-                          gap: 4,
-                        }}
-                      >
-                        <Text
-                          numberOfLines={1}
-                          style={{
-                            color: "#132521",
-                            fontWeight: "800",
-                          }}
-                        >
-                          {threadItem.title}
-                        </Text>
-                        <Text
-                          numberOfLines={1}
-                          style={{
-                            color: "#5a6762",
-                            fontSize: 12,
-                          }}
-                        >
-                          {formatThreadUpdatedAt(threadItem.updatedAt)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+                </View>
               </View>
-            ) : null}
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{
-                gap: 10,
-              }}
-            >
-              {QUICK_ACTIONS.map((action) => (
-                <Pressable
-                  key={action.label}
-                  onPress={() => handleQuickAction(action)}
-                  style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 11,
-                    borderRadius: 16,
-                    backgroundColor:
-                      composerMode === action.mode &&
-                      composerValue.startsWith(action.prompt)
-                        ? "#123a35"
-                        : "#efe9dd",
-                  }}
-                >
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  gap: 8,
+                  paddingRight: 4,
+                }}
+              >
+                {threads.length === 0 ? (
                   <Text
                     style={{
-                      fontWeight: "700",
-                      color:
-                        composerMode === action.mode &&
-                        composerValue.startsWith(action.prompt)
-                          ? "#f4f0e8"
-                          : "#31413c",
+                      color: "#5a6762",
+                      lineHeight: 20,
                     }}
                   >
-                    {action.label}
+                    Start a new chat or send a message to create one.
                   </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
+                ) : null}
+                {threads.map((threadItem) => {
+                  const isActiveThread = threadItem.id === activeThread?.id;
+
+                  return (
+                    <Pressable
+                      key={threadItem.id}
+                      onPress={() => {
+                        void handleSelectThread(threadItem.id);
+                      }}
+                      disabled={isLoading || isSendingMessage}
+                      style={{
+                        width: 170,
+                        minHeight: 54,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: isActiveThread ? "#123a35" : "#d8cfbf",
+                        backgroundColor: isActiveThread ? "#d7e7e1" : "#f6f1e8",
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        gap: 2,
+                      }}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: "#132521",
+                          fontWeight: "800",
+                        }}
+                      >
+                        {threadItem.title}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: "#5a6762",
+                          fontSize: 12,
+                        }}
+                      >
+                        {formatThreadUpdatedAt(threadItem.updatedAt)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
 
           {!isAuthenticated ? (
             <View
@@ -754,6 +665,43 @@ export default function AssistantHomeScreen() {
               ) : null}
             </View>
 
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                gap: 8,
+                paddingRight: 2,
+              }}
+            >
+              {QUICK_ACTIONS.map((action) => {
+                const isSelected =
+                  composerMode === action.mode &&
+                  composerValue.startsWith(action.prompt);
+
+                return (
+                  <Pressable
+                    key={action.label}
+                    onPress={() => handleQuickAction(action)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 9,
+                      borderRadius: 14,
+                      backgroundColor: isSelected ? "#123a35" : "#efe9dd",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontWeight: "700",
+                        color: isSelected ? "#f4f0e8" : "#31413c",
+                      }}
+                    >
+                      {action.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
             <TextInput
               value={composerValue}
               onChangeText={setComposerValue}
@@ -768,7 +716,7 @@ export default function AssistantHomeScreen() {
               }
               placeholderTextColor="#88938f"
               style={{
-                minHeight: 110,
+                minHeight: 88,
                 borderRadius: 18,
                 backgroundColor: "#f6f1e8",
                 paddingHorizontal: 14,
@@ -1175,8 +1123,9 @@ type ProposalPreviewEvent = {
 
 const PREVIEW_START_HOUR = 6;
 const PREVIEW_END_HOUR = 22;
-const PREVIEW_HOUR_HEIGHT = 30;
-const PREVIEW_DAY_WIDTH = 96;
+const PREVIEW_HOUR_HEIGHT = 24;
+const PREVIEW_MIN_DAY_WIDTH = 112;
+const PREVIEW_MAX_DAY_WIDTH = 168;
 const PREVIEW_TIMED_HEIGHT =
   (PREVIEW_END_HOUR - PREVIEW_START_HOUR) * PREVIEW_HOUR_HEIGHT;
 
@@ -1186,6 +1135,7 @@ function ScheduleProposalWeekPreview({
   proposal: ScheduleProposal;
 }) {
   const { isAuthenticated, sessionToken } = useAuth();
+  const { width: viewportWidth } = useWindowDimensions();
   const range = useMemo(() => getProposalPreviewRange(proposal), [proposal]);
   const rangeKey = range
     ? `${range.startDate.toISOString()}:${range.endDate.toISOString()}`
@@ -1259,6 +1209,7 @@ function ScheduleProposalWeekPreview({
   const previewEvents = [...calendarEvents, ...proposalEvents];
   const allDayEvents = previewEvents.filter((event) => event.allDay);
   const timedEvents = previewEvents.filter((event) => !event.allDay);
+  const dayWidth = getPreviewDayWidth(viewportWidth, days.length);
 
   return (
     <View
@@ -1363,7 +1314,7 @@ function ScheduleProposalWeekPreview({
               <View
                 key={day.toISOString()}
                 style={{
-                  width: PREVIEW_DAY_WIDTH,
+                  width: dayWidth,
                   paddingBottom: 8,
                   paddingRight: 8,
                 }}
@@ -1390,7 +1341,7 @@ function ScheduleProposalWeekPreview({
               <View
                 key={`${day.toISOString()}-body`}
                 style={{
-                  width: PREVIEW_DAY_WIDTH,
+                  width: dayWidth,
                   height: PREVIEW_TIMED_HEIGHT,
                   borderLeftWidth: 1,
                   borderColor: "#e8ded0",
@@ -1798,6 +1749,16 @@ function formatPreviewDay(value: Date) {
     month: "numeric",
     day: "numeric",
   });
+}
+
+function getPreviewDayWidth(viewportWidth: number, dayCount: number) {
+  const availableWidth = Math.max(0, viewportWidth - 96);
+  const targetWidth = Math.floor(availableWidth / Math.max(1, dayCount));
+
+  return Math.min(
+    PREVIEW_MAX_DAY_WIDTH,
+    Math.max(PREVIEW_MIN_DAY_WIDTH, targetWidth),
+  );
 }
 
 function getProposalStatusColor(status: ScheduleProposal["status"]) {

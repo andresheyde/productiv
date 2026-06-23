@@ -114,9 +114,76 @@ test("runPlanningTurn does not synthesize a plan when plan_ready lacks required 
   assert.equal(provider.calls.length, 1);
   assert.match(provider.calls[0]?.input ?? "", /"preferredFocusBlockMinutes": 90/u);
   assert.equal(result.status, "needs_clarification");
-  assert.match(result.assistantMessage, /I need one more concrete detail/u);
+  assert.match(result.assistantMessage, /activities, tasks, or focus areas/u);
   assert.doesNotMatch(result.assistantMessage, /enough to draft/u);
   assert.equal(result.generatedPlan, null);
+});
+
+test("runPlanningTurn rejects plan_ready when the model omits all core details", async () => {
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "I have enough to draft a plan.",
+      draftPlanningState: {},
+      status: "plan_ready",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [{ role: "user", content: "Help me plan." }],
+    currentDraftPlanningState: createEmptyDraftPlanningState(),
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.equal(result.status, "needs_clarification");
+  assert.match(result.assistantMessage, /I need one more concrete detail/u);
+  assert.match(result.assistantMessage, /a concrete goal outcome/u);
+  assert.match(result.assistantMessage, /activity, task, or focus area/u);
+  assert.equal(result.generatedPlan, null);
+});
+
+test("runPlanningTurn asks for user-owned focus areas before creating broad fitness goals", async () => {
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "I can turn that into a first fitness plan.",
+      draftPlanningState: {
+        mediumTermGoal:
+          "Reduce body fat, build strength, improve stamina, play sports without pain, and develop visible abdominal definition within 6 months",
+        thirtyDayPerformanceGoals: [
+          "Establish a consistent workout routine including strength training and cardiovascular exercise at least 3 times per week",
+          "Incorporate flexibility and mobility exercises twice per week to reduce pain during sports",
+        ],
+        fourteenDayPerformanceGoals: [
+          "Complete at least 6 workout sessions combining strength and cardio exercises",
+        ],
+      },
+      schedulingPreferenceCandidates: [],
+      status: "plan_ready",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [
+      { role: "user", content: "I want to get in better shape." },
+      {
+        role: "assistant",
+        content: "What does getting in better shape mean to you?",
+      },
+      {
+        role: "user",
+        content:
+          "I would like to shed some fat and replace it with more strength. I want to become more explosive, have more stamina, and have no pain when I'm playing sports. I would like a six pack.",
+      },
+    ],
+    currentDraftPlanningState: createEmptyDraftPlanningState(),
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.equal(result.status, "needs_clarification");
+  assert.equal(result.generatedPlan, null);
+  assert.match(result.assistantMessage, /activities, tasks, or focus areas/u);
+  assert.match(result.assistantMessage, /help choosing/u);
 });
 
 test("runPlanningTurn synthesizes a goal without optional barrier analysis", async () => {
