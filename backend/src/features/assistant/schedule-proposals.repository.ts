@@ -30,7 +30,6 @@ type ScheduleProposalRow = {
 export type ScheduleTaskProposalOperation = {
   type: "schedule_task";
   taskId: string;
-  occurrenceKey?: string | null;
   title: string;
   description: string;
   startTime: string;
@@ -95,39 +94,6 @@ export async function listDraftScheduleProposals(
       where user_id = $1
         and status = 'draft'
       order by created_at desc
-      limit 5
-    `,
-    [userId],
-  );
-
-  return result.rows.map(mapScheduleProposal);
-}
-
-export async function listRecentAppliedScheduleProposals(
-  userId: string,
-  db: DatabaseExecutor = getScheduleProposalExecutor(),
-): Promise<ScheduleProposalRecord[]> {
-  const result = await db.query<ScheduleProposalRow>(
-    `
-      select
-        id,
-        thread_id,
-        title,
-        status,
-        intent,
-        date_range_start::text,
-        date_range_end::text,
-        summary,
-        operations,
-        conflict_annotations,
-        feedback_history,
-        applied_at,
-        created_at,
-        updated_at
-      from schedule_proposals
-      where user_id = $1
-        and status = 'applied'
-      order by applied_at desc nulls last, updated_at desc
       limit 5
     `,
     [userId],
@@ -261,9 +227,9 @@ export async function updateScheduleProposalStatus(
     feedbackEntry?: Record<string, unknown> | undefined;
   },
   db: DatabaseExecutor = getScheduleProposalExecutor(),
-): Promise<ScheduleProposalRecord | null> {
+) {
   if (input.feedbackEntry) {
-    const result = await db.query<ScheduleProposalRow>(
+    await db.query(
       `
         update schedule_proposals
         set
@@ -272,21 +238,6 @@ export async function updateScheduleProposalStatus(
           applied_at = case when $1 = 'applied' then timezone('utc', now()) else applied_at end,
           updated_at = timezone('utc', now())
         where id = $3 and user_id = $4
-        returning
-          id,
-          thread_id,
-          title,
-          status,
-          intent,
-          date_range_start::text,
-          date_range_end::text,
-          summary,
-          operations,
-          conflict_annotations,
-          feedback_history,
-          applied_at,
-          created_at,
-          updated_at
       `,
       [
         input.status,
@@ -295,10 +246,10 @@ export async function updateScheduleProposalStatus(
         input.userId,
       ],
     );
-    return result.rows[0] ? mapScheduleProposal(result.rows[0]) : null;
+    return;
   }
 
-  const result = await db.query<ScheduleProposalRow>(
+  await db.query(
     `
       update schedule_proposals
       set
@@ -306,25 +257,9 @@ export async function updateScheduleProposalStatus(
         applied_at = case when $1 = 'applied' then timezone('utc', now()) else applied_at end,
         updated_at = timezone('utc', now())
       where id = $2 and user_id = $3
-      returning
-        id,
-        thread_id,
-        title,
-        status,
-        intent,
-        date_range_start::text,
-        date_range_end::text,
-        summary,
-        operations,
-        conflict_annotations,
-        feedback_history,
-        applied_at,
-        created_at,
-        updated_at
     `,
     [input.status, input.proposalId, input.userId],
   );
-  return result.rows[0] ? mapScheduleProposal(result.rows[0]) : null;
 }
 
 function mapScheduleProposal(row: ScheduleProposalRow): ScheduleProposalRecord {
@@ -372,8 +307,6 @@ function normalizeScheduleProposalOperation(value: unknown): ScheduleProposalOpe
       {
         type: "schedule_task",
         taskId: record.taskId,
-        occurrenceKey:
-          typeof record.occurrenceKey === "string" ? record.occurrenceKey : null,
         title: record.title,
         description: record.description,
         startTime: record.startTime,

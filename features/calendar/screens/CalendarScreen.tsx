@@ -33,22 +33,19 @@ import StickyHeader from "../components/header/StickyHeader";
 import useDeviceCalendars from "../data/device/hooks/useDeviceCalendars";
 import useDeviceEvents from "../data/device/hooks/useDeviceEvents";
 import useGoogleEvents from "../data/google/hooks/useGoogleEvents";
-import {
-  getCalendarColumnWidth,
-  getCalendarTimeWindowFromEvents,
-  getResponsiveCalendarDayCount,
-  xAndYToDate,
-} from "../layout/calendarLayout";
+import { getCalendarColumnWidth, xAndYToDate } from "../layout/calendarLayout";
 import { CalendarEvent } from "../types";
 
 export default function CalendarScreen() {
   const weekStartDay = 0;
+  const numDays = 7;
   const today = new Date();
   const { width: windowWidth } = useWindowDimensions();
   const [calendarWidth, setCalendarWidth] = useState(0);
-  const layoutWidth = calendarWidth || windowWidth;
-  const numDays = getResponsiveCalendarDayCount(layoutWidth);
-  const columnWidth = getCalendarColumnWidth(layoutWidth, numDays);
+  const columnWidth = getCalendarColumnWidth(
+    calendarWidth || windowWidth,
+    numDays,
+  );
 
   const [leftDate, setLeftDate] = useState(getDefaultLeftDate());
   const rightDate = addDays(leftDate, numDays);
@@ -91,10 +88,6 @@ export default function CalendarScreen() {
   const timedEvents = useMemo(() => {
     return mergedEvents.filter((event) => !event.allDay);
   }, [mergedEvents]);
-  const timeWindow = useMemo(
-    () => getCalendarTimeWindowFromEvents(timedEvents),
-    [timedEvents],
-  );
 
   const gesture = Gesture.Exclusive(
     Gesture.Fling()
@@ -171,7 +164,6 @@ export default function CalendarScreen() {
               rightDate={rightDate}
               today={today}
               columnWidth={columnWidth}
-              timeWindow={timeWindow}
               events={timedEvents}
               selectedEvent={selectedEvent}
               onEventBlockPress={onEventBlockPress}
@@ -212,14 +204,7 @@ export default function CalendarScreen() {
       setSelectedEvent(null);
       return;
     }
-    const startTime = xAndYToDate(
-      x,
-      y,
-      numDays,
-      columnWidth,
-      leftDate,
-      timeWindow,
-    );
+    const startTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
     const newEvent: CalendarEvent = {
       id: Crypto.randomUUID(),
       startTime: startTime,
@@ -249,14 +234,7 @@ export default function CalendarScreen() {
 
   function onEventsLayerLongPressBegin(x: number, y: number) {
     clearEditorMessages();
-    const startTime = xAndYToDate(
-      x,
-      y,
-      numDays,
-      columnWidth,
-      leftDate,
-      timeWindow,
-    );
+    const startTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
     const newEvent: CalendarEvent = {
       id: Crypto.randomUUID(),
       startTime: startTime,
@@ -274,14 +252,7 @@ export default function CalendarScreen() {
 
   function onEventsLayerLongPressEnd(x: number, y: number) {
     clearEditorMessages();
-    const endTime = xAndYToDate(
-      x,
-      y,
-      numDays,
-      columnWidth,
-      leftDate,
-      timeWindow,
-    );
+    const endTime = xAndYToDate(x, y, numDays, columnWidth, leftDate);
     const newEvent: CalendarEvent = {
       id: selectedEvent!.id,
       startTime: isBefore(selectedEvent!.startTime, endTime)

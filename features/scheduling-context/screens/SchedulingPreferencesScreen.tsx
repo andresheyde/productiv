@@ -16,10 +16,7 @@ import {
   updateGoogleCalendarSources,
   type GoogleCalendarSource,
 } from "@/features/calendar/api/googleCalendarApi";
-import type {
-  DerivedSchedulingSuggestion,
-  SchedulingPreferenceRule,
-} from "@/features/scheduling-context/types";
+import type { DerivedSchedulingSuggestion } from "@/features/scheduling-context/types";
 import WorkspaceAuthGate from "@/features/workspace/components/WorkspaceAuthGate";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
 
@@ -314,26 +311,6 @@ export default function SchedulingPreferencesScreen() {
         </SectionCard>
 
         <SectionCard
-          title="Learning From Feedback"
-          description="Productiv uses accepted memory as durable guidance and treats recent feedback as tentative until you approve it."
-        >
-          <LearningRuleGroup
-            emptyText="No accepted learned rules yet. Accept suggestions below to make recurring patterns durable."
-            label="Accepted memory"
-            rules={schedulingContext.activeRules.filter(
-              (rule) => rule.source === "derived",
-            )}
-            tone="accepted"
-          />
-          <LearningRuleGroup
-            emptyText="No tentative feedback patterns right now. Productiv will show recent schedule feedback here when it can use it softly."
-            label="Trying from recent feedback"
-            rules={schedulingContext.tentativeRules}
-            tone="tentative"
-          />
-        </SectionCard>
-
-        <SectionCard
           title="Calendar Sources"
           description="Choose which Google calendars Productiv should show and pass into scheduling conversations."
         >
@@ -496,8 +473,7 @@ function SuggestionCard({
   onAccept,
   onDismiss,
 }: SuggestionCardProps) {
-  const scopeLabel = getRuleScopeLabel(suggestion);
-  const impactLabel = getRuleImpactLabel(suggestion);
+  const scopeLabel = getSuggestionScopeLabel(suggestion);
 
   return (
     <View
@@ -536,16 +512,6 @@ function SuggestionCard({
           }}
         >
           {scopeLabel}
-        </Text>
-        <Text
-          style={{
-            color: "#31504a",
-            fontSize: 12,
-            fontWeight: "800",
-            lineHeight: 17,
-          }}
-        >
-          {impactLabel}
         </Text>
         <Text
           style={{
@@ -615,201 +581,17 @@ function SuggestionCard({
   );
 }
 
-type LearningRuleGroupProps = {
-  emptyText: string;
-  label: string;
-  rules: SchedulingPreferenceRule[];
-  tone: "accepted" | "tentative";
-};
-
-function LearningRuleGroup({
-  emptyText,
-  label,
-  rules,
-  tone,
-}: LearningRuleGroupProps) {
-  return (
-    <View style={{ gap: 10 }}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10,
-        }}
-      >
-        <Text
-          style={{
-            color: "#132521",
-            fontWeight: "800",
-          }}
-        >
-          {label}
-        </Text>
-        <Text
-          style={{
-            color: tone === "accepted" ? "#123a35" : "#7d6f61",
-            fontSize: 12,
-            fontWeight: "800",
-          }}
-        >
-          {rules.length}
-        </Text>
-      </View>
-
-      {rules.length === 0 ? (
-        <Text
-          style={{
-            color: "#5a6762",
-            lineHeight: 20,
-          }}
-        >
-          {emptyText}
-        </Text>
-      ) : (
-        <View style={{ gap: 0 }}>
-          {rules.map((rule, index) => (
-            <LearningRuleRow
-              key={rule.id}
-              isFirst={index === 0}
-              rule={rule}
-              tone={tone}
-            />
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-function LearningRuleRow({
-  isFirst,
-  rule,
-  tone,
-}: {
-  isFirst: boolean;
-  rule: SchedulingPreferenceRule;
-  tone: "accepted" | "tentative";
-}) {
-  const impactLabel = getRuleImpactLabel(rule);
-
-  return (
-    <View
-      style={{
-        borderTopWidth: isFirst ? 0 : 1,
-        borderColor: "#e5dac6",
-        paddingVertical: 11,
-        gap: 5,
-      }}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "flex-start",
-          gap: 8,
-        }}
-      >
-        <Text
-          style={{
-            color: "#132521",
-            flex: 1,
-            fontSize: 15,
-            fontWeight: "800",
-            lineHeight: 20,
-          }}
-        >
-          {rule.title}
-        </Text>
-        <Text
-          style={{
-            color: tone === "accepted" ? "#123a35" : "#7d6f61",
-            fontSize: 11,
-            fontWeight: "800",
-          }}
-        >
-          {tone === "accepted" ? "Accepted" : "Trying"}
-        </Text>
-      </View>
-      <Text
-        style={{
-          color: "#5a6762",
-          lineHeight: 20,
-        }}
-      >
-        {rule.detail}
-      </Text>
-      <Text
-        style={{
-          color: "#7d6f61",
-          fontSize: 12,
-          fontWeight: "700",
-        }}
-      >
-        {getRuleScopeLabel(rule)}
-        {rule.confidence ? ` / ${rule.confidence} confidence` : ""}
-      </Text>
-      <Text
-        style={{
-          color: tone === "accepted" ? "#31504a" : "#7d6f61",
-          fontSize: 12,
-          fontWeight: "800",
-          lineHeight: 17,
-        }}
-      >
-        {impactLabel}
-      </Text>
-    </View>
-  );
-}
-
-function getRuleImpactLabel(rule: SchedulingPreferenceRule) {
-  const temporalScope = getMetadataString(rule.metadata, "temporalScope");
-  const detail = rule.detail.toLowerCase();
-  const title = rule.title.toLowerCase();
-
-  if (
-    rule.kind === "no_schedule_window" &&
-    rule.strength === "soft_preference" &&
-    temporalScope
-  ) {
-    return `Use in drafts: avoid ${temporalScope} slots when possible.`;
-  }
-
-  if (
-    rule.kind === "preferred_work_period" &&
-    getMetadataString(rule.metadata, "activityTitle") &&
-    temporalScope
-  ) {
-    return `Use in drafts: prefer ${temporalScope} for matching work.`;
-  }
-
-  if (
-    rule.kind === "custom" &&
-    (title.includes("lighter") ||
-      detail.includes("buffer") ||
-      detail.includes("breathing room"))
-  ) {
-    return "Use in drafts: leave more buffer and keep days lighter.";
-  }
-
-  if (rule.strength === "hard_constraint") {
-    return "Use in drafts: avoid conflicts unless you explicitly override it.";
-  }
-
-  return "Use in drafts: soft guidance when Productiv picks times.";
-}
-
-function getRuleScopeLabel(rule: SchedulingPreferenceRule) {
-  const scope = getMetadataString(rule.metadata, "applicabilityScope");
+function getSuggestionScopeLabel(suggestion: DerivedSchedulingSuggestion) {
+  const scope = getMetadataString(suggestion.metadata, "applicabilityScope");
 
   if (!scope || scope === "global") {
     return "Scope: Global";
   }
 
-  const domain = getMetadataString(rule.metadata, "domain");
-  const goalTitle = getMetadataString(rule.metadata, "goalTitle");
-  const activityTitle = getMetadataString(rule.metadata, "activityTitle");
-  const temporalScope = getMetadataString(rule.metadata, "temporalScope");
+  const domain = getMetadataString(suggestion.metadata, "domain");
+  const goalTitle = getMetadataString(suggestion.metadata, "goalTitle");
+  const activityTitle = getMetadataString(suggestion.metadata, "activityTitle");
+  const temporalScope = getMetadataString(suggestion.metadata, "temporalScope");
 
   if (scope === "domain" && domain) {
     return `Scope: ${domain}`;

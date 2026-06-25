@@ -172,25 +172,15 @@ function hydrateDraftPlanningStateFromTranscript(
     .filter((message) => message.role === "user")
     .map((message) => message.content.trim())
     .filter((message) => message.length > 0);
-  const transcriptDirection = extractGoalSupportingActivities(userMessages);
-  let direction = mergeUniqueStrings(
+  const direction = mergeUniqueStrings(
     draft.direction,
-    transcriptDirection,
+    extractGoalSupportingActivities(userMessages),
   );
   const inferredMediumTermGoal = inferMediumTermGoal(userMessages);
   const mediumTermGoal =
     draft.mediumTermGoal && !isVagueMediumTermGoal(draft.mediumTermGoal)
       ? draft.mediumTermGoal
       : inferredMediumTermGoal ?? draft.mediumTermGoal;
-  const starterDirection =
-    direction.length === 0 && mediumTermGoal
-      ? inferStarterGoalSupportingActivities(mediumTermGoal)
-      : [];
-  const addedStarterDirection = starterDirection.length > 0;
-
-  if (addedStarterDirection) {
-    direction = mergeUniqueStrings(direction, starterDirection);
-  }
 
   if (
     direction.length === draft.direction.length &&
@@ -207,9 +197,7 @@ function hydrateDraftPlanningStateFromTranscript(
       ...draft.confidenceFlags,
       direction:
         direction.length > draft.direction.length
-          ? addedStarterDirection
-            ? "low"
-            : draft.confidenceFlags.direction ?? "medium"
+          ? draft.confidenceFlags.direction ?? "medium"
           : draft.confidenceFlags.direction,
       mediumTermGoal:
         mediumTermGoal !== draft.mediumTermGoal
@@ -224,44 +212,6 @@ function hydrateDraftPlanningStateFromTranscript(
     nextBestQuestion:
       mediumTermGoal && direction.length > 0 ? null : draft.nextBestQuestion,
   };
-}
-
-function inferStarterGoalSupportingActivities(goal: string) {
-  const normalized = goal.toLowerCase();
-
-  if (
-    /\b(?:lose|losing|fat|weight|abs?|stamina|fitness|fit|strength|strong|muscle|workout|exercise|train|training|sports?|sprint|dunk)\b/u.test(
-      normalized,
-    )
-  ) {
-    return ["Strength training", "Cardio"];
-  }
-
-  if (
-    /\b(?:grade|grades|school|class|course|exam|finals?|calculus|study|learn)\b/u.test(
-      normalized,
-    )
-  ) {
-    return ["Study", "Practice problems"];
-  }
-
-  if (
-    /\b(?:job|career|interview|software developer|backend|frontend|role|roles|offer)\b/u.test(
-      normalized,
-    )
-  ) {
-    return ["Apply to roles", "Interview practice"];
-  }
-
-  if (
-    /\b(?:launch|ship|project|product|proposal|write|writing|draft|build)\b/u.test(
-      normalized,
-    )
-  ) {
-    return ["Deep work", "Review notes"];
-  }
-
-  return [];
 }
 
 function inferMediumTermGoal(userMessages: string[]) {
@@ -373,7 +323,7 @@ function buildMissingPlanRequirementsMessage(missingRequirements: string[]) {
     missingRequirements[0] ===
       "at least one activity, task, or focus area you want to include"
   ) {
-    return "I need one activity, constraint, or clue before I can create this goal. Share anything you know, or say \"choose for me\" and Productiv will draft a starter focus set.";
+    return "What activities, tasks, or focus areas do you want to include first for this goal? If you want help choosing, tell me and I can suggest a short set for you to approve.";
   }
 
   return `I need one more concrete detail before I can create this goal: ${missingRequirements.join(

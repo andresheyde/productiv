@@ -10,7 +10,6 @@ import type {
   MetricProgressEntryRecord,
   MetricProgressSource,
   ScheduleIntent,
-  TaskRecurrence,
   TaskRecord,
   TaskStatus,
   WorkLogRecord,
@@ -51,7 +50,6 @@ type TaskRow = {
   status: TaskStatus;
   estimated_minutes: number | null;
   due_at: Date | null;
-  recurrence: unknown;
   linked_calendar_event_id: string | null;
   schedule_intent: ScheduleIntent;
   created_at: Date;
@@ -425,7 +423,6 @@ export async function listTasks(
         status,
         estimated_minutes,
         due_at,
-        recurrence,
         linked_calendar_event_id,
         schedule_intent,
         created_at,
@@ -624,7 +621,6 @@ export async function getTaskById(
         status,
         estimated_minutes,
         due_at,
-        recurrence,
         linked_calendar_event_id,
         schedule_intent,
         created_at,
@@ -845,7 +841,6 @@ export async function createTask(
     estimatedMinutes?: number | null | undefined;
     dueAt?: Date | null | undefined;
     scheduleIntent?: ScheduleIntent | undefined;
-    recurrence?: TaskRecurrence | null | undefined;
     linkedCalendarEventId?: string | null | undefined;
   },
   db: DatabaseExecutor = getWorkspaceExecutor(),
@@ -861,11 +856,10 @@ export async function createTask(
         status,
         estimated_minutes,
         due_at,
-        recurrence,
         linked_calendar_event_id,
         schedule_intent
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       returning
         id,
         goal_id,
@@ -875,7 +869,6 @@ export async function createTask(
         status,
         estimated_minutes,
         due_at,
-        recurrence,
         linked_calendar_event_id,
         schedule_intent,
         created_at,
@@ -890,7 +883,6 @@ export async function createTask(
       input.status ?? "inbox",
       input.estimatedMinutes ?? null,
       input.dueAt ?? null,
-      input.recurrence ? JSON.stringify(input.recurrence) : null,
       input.linkedCalendarEventId ?? null,
       input.scheduleIntent ?? "unscheduled",
     ],
@@ -911,7 +903,6 @@ export async function patchTask(
     estimatedMinutes?: number | null | undefined;
     dueAt?: Date | null | undefined;
     scheduleIntent?: ScheduleIntent | undefined;
-    recurrence?: TaskRecurrence | null | undefined;
     linkedCalendarEventId?: string | null | undefined;
   },
   db: DatabaseExecutor = getWorkspaceExecutor(),
@@ -930,12 +921,6 @@ export async function patchTask(
         status: input.status,
         estimated_minutes: input.estimatedMinutes,
         due_at: input.dueAt,
-        recurrence:
-          input.recurrence === undefined
-            ? undefined
-            : input.recurrence === null
-              ? null
-              : JSON.stringify(input.recurrence),
         linked_calendar_event_id: input.linkedCalendarEventId,
         schedule_intent: input.scheduleIntent,
       },
@@ -948,7 +933,6 @@ export async function patchTask(
         status,
         estimated_minutes,
         due_at,
-        recurrence,
         linked_calendar_event_id,
         schedule_intent,
         created_at,
@@ -1313,130 +1297,6 @@ function normalizeString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizeTaskRecurrence(value: unknown): TaskRecurrence | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const frequency =
-    record.frequency === "daily" ||
-    record.frequency === "weekly" ||
-    record.frequency === "monthly" ||
-    record.frequency === "custom"
-      ? record.frequency
-      : null;
-
-  if (!frequency) {
-    return null;
-  }
-
-  const interval =
-    typeof record.interval === "number" &&
-    Number.isFinite(record.interval) &&
-    record.interval > 0
-      ? Math.max(1, Math.round(record.interval))
-      : 1;
-  const daysOfWeek = Array.isArray(record.daysOfWeek)
-    ? [
-        ...new Set(
-          record.daysOfWeek
-            .filter((day): day is number => Number.isInteger(day))
-            .map((day) => Math.trunc(day))
-            .filter((day) => day >= 0 && day <= 6),
-        ),
-      ].sort((left, right) => left - right)
-    : [];
-  const endsAt =
-    typeof record.endsAt === "string" && !Number.isNaN(Date.parse(record.endsAt))
-      ? new Date(record.endsAt).toISOString()
-      : null;
-
-  return {
-    frequency,
-    interval,
-    daysOfWeek,
-    endsAt,
-    sourceText: normalizeString(record.sourceText),
-    scheduledOccurrences: normalizeTaskScheduledOccurrences(
-      record.scheduledOccurrences,
-    ),
-  };
-}
-
-function normalizeTaskScheduledOccurrences(
-  value: unknown,
-): TaskRecurrence["scheduledOccurrences"] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const occurrences = value.flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      return [];
-    }
-
-    const record = item as Record<string, unknown>;
-    const startTime = normalizeIsoString(record.startTime);
-    const endTime = normalizeIsoString(record.endTime);
-    const dateKey =
-      normalizeDateKey(record.dateKey) ??
-      (startTime ? dateKeyFromIsoString(startTime) : null);
-
-    if (!dateKey || !startTime || !endTime) {
-      return [];
-    }
-
-    return [
-      {
-        dateKey,
-        startTime,
-        endTime,
-        calendarEventId: normalizeString(record.calendarEventId),
-        sourceProposalId: normalizeString(record.sourceProposalId),
-      },
-    ];
-  });
-  const seen = new Set<string>();
-
-  return occurrences.filter((occurrence) => {
-    const key = `${occurrence.dateKey}:${occurrence.calendarEventId ?? occurrence.startTime}`;
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-    return true;
-  });
-}
-
-function normalizeDateKey(value: unknown) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
-    return null;
-  }
-
-  return value;
-}
-
-function normalizeIsoString(value: unknown) {
-  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
-    return null;
-  }
-
-  return new Date(value).toISOString();
-}
-
-function dateKeyFromIsoString(value: string) {
-  const date = new Date(value);
-
-  return [
-    date.getFullYear(),
-    (date.getMonth() + 1).toString().padStart(2, "0"),
-    date.getDate().toString().padStart(2, "0"),
-  ].join("-");
-}
-
 function createStableFocusId(title: string) {
   return title
     .trim()
@@ -1460,7 +1320,6 @@ function mapTask(row: TaskRow | undefined): TaskRecord {
     status: row.status,
     estimatedMinutes: row.estimated_minutes,
     dueAt: row.due_at?.toISOString() ?? null,
-    recurrence: normalizeTaskRecurrence(row.recurrence),
     linkedCalendarEventId: row.linked_calendar_event_id,
     scheduleIntent: row.schedule_intent,
     createdAt: row.created_at.toISOString(),

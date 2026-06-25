@@ -1,21 +1,14 @@
 import { Text, View } from "react-native";
 import {
-  CalendarTimeWindow,
-  getCalendarGridHeight,
+  DEFAULT_GRID_HEIGHT,
+  HOURS,
   TIME_GUTTER_HEIGHT,
   TIME_GUTTER_WIDTH,
   timeToY,
 } from "../../layout/calendarLayout";
 import { formatLocaleHour } from "@/features/shared/utils/dateTime";
 
-type TimeGuttersProps = {
-  timeWindow: CalendarTimeWindow;
-};
-
-export default function TimeGutters({ timeWindow }: TimeGuttersProps) {
-  const gridHeight = getCalendarGridHeight(timeWindow);
-  const hourCount = timeWindow.endHour - timeWindow.startHour;
-
+export default function TimeGutters() {
   return (
     <View
       style={{
@@ -23,20 +16,18 @@ export default function TimeGutters({ timeWindow }: TimeGuttersProps) {
         left: 0,
         top: 0,
         width: TIME_GUTTER_WIDTH,
-        height: gridHeight,
+        height: DEFAULT_GRID_HEIGHT,
         backgroundColor: "#efe6d7",
       }}
     >
-      {Array.from({ length: hourCount }, (_, i) => {
-        const hour = timeWindow.startHour + i;
-
+      {Array.from({ length: HOURS }, (_, i) => {
         return (
           <View
-            key={hour}
+            key={i}
             style={{
               position: "absolute",
               left: 0,
-              top: timeToY(hour, 0, undefined, timeWindow.startHour),
+              top: timeToY(i),
               width: TIME_GUTTER_WIDTH,
               height: TIME_GUTTER_HEIGHT,
             }}
@@ -49,7 +40,7 @@ export default function TimeGutters({ timeWindow }: TimeGuttersProps) {
                 fontWeight: "600",
               }}
             >
-              {hourToString(hour)}
+              {hourToString(i)}
             </Text>
           </View>
         );
@@ -59,9 +50,9 @@ export default function TimeGutters({ timeWindow }: TimeGuttersProps) {
 }
 
 function hourToString(hour: number) {
-  if (hour < 0 || hour > 24) {
+  if (hour < 0 || hour > 23) {
     throw new Error(`Invalid hour: ${hour}`);
   }
 
-  return formatLocaleHour(hour % 24);
+  return formatLocaleHour(hour);
 }

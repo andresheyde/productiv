@@ -91,7 +91,6 @@ export type UserSchedulingContextRecord = {
   recoveryDays: SchedulingDayOfWeek[];
   additionalNotes: string;
   activeRules: SchedulingPreferenceRuleRecord[];
-  tentativeRules: SchedulingPreferenceRuleRecord[];
   compiledSummary: string;
   updatedAt: string;
 };
@@ -133,7 +132,6 @@ export type CompiledSchedulingContext = {
   hardConstraints: string[];
   softPreferences: string[];
   acceptedDerivedHabits: string[];
-  tentativeDerivedPreferences: string[];
   promptSummary: string;
 };
 

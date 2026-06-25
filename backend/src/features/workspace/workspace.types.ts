@@ -3,24 +3,6 @@ export type TaskStatus = "inbox" | "planned" | "scheduled" | "done" | "canceled"
 export type ScheduleIntent = "unscheduled" | "schedule_now" | "someday";
 export type MetricProgressSource = "assistant_extract" | "manual";
 export type GoalFocusAreaStatus = "active" | "paused" | "completed";
-export type TaskRecurrenceFrequency = "daily" | "weekly" | "monthly" | "custom";
-
-export type TaskRecurrence = {
-  frequency: TaskRecurrenceFrequency;
-  interval: number;
-  daysOfWeek: number[];
-  endsAt: string | null;
-  sourceText: string | null;
-  scheduledOccurrences: TaskScheduledOccurrence[];
-};
-
-export type TaskScheduledOccurrence = {
-  dateKey: string;
-  startTime: string;
-  endTime: string;
-  calendarEventId: string | null;
-  sourceProposalId: string | null;
-};
 
 export type GoalFocusArea = {
   id: string;
@@ -55,7 +37,6 @@ export type TaskRecord = {
   status: TaskStatus;
   estimatedMinutes: number | null;
   dueAt: string | null;
-  recurrence: TaskRecurrence | null;
   linkedCalendarEventId: string | null;
   scheduleIntent: ScheduleIntent;
   createdAt: string;

@@ -40,7 +40,6 @@ function modelAction(type: AssistantActionType) {
     goalId: "goal-1",
     focusId: "focus-1",
     taskId: "task-1",
-    occurrenceKey: "task-1:2026-06-20",
     metricId: "metric-1",
     title: "  Launch beta  ",
     definition: "Ship a useful beta",
@@ -69,14 +68,6 @@ function modelAction(type: AssistantActionType) {
     targetValue: 10,
     currentValue: 2,
     dueAt: "2026-07-01T00:00:00.000Z",
-    recurrence: {
-      frequency: "weekly",
-      interval: 1,
-      daysOfWeek: [1, 3],
-      endsAt: null,
-      sourceText: "weekly report",
-      scheduledOccurrences: [],
-    },
     estimatedMinutes: 45,
     priorityRank: 1,
     status: "planned",
@@ -127,35 +118,12 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
   const instructions = createAssistantTurnInstructions();
 
   assert.match(instructions, /Identify the user's intent first/u);
-  assert.match(instructions, /multiple independent goals, tasks, habits/u);
-  assert.match(instructions, /return every safe action/u);
-  assert.match(instructions, /only some parts are actionable/u);
   assert.match(instructions, /minimum missing information/u);
   assert.match(instructions, /Do not require barrier analysis/u);
-  assert.match(instructions, /schedulable activities/u);
+  assert.match(instructions, /user-stated activity/u);
   assert.match(instructions, /focus blocks/u);
   assert.match(instructions, /losing fat, visible abs/u);
-  assert.match(instructions, /infer a conservative starter focus plan/u);
-  assert.match(instructions, /instead of asking the user to design/u);
-  assert.match(instructions, /Focused work/u);
   assert.match(instructions, /earlier in the week/u);
-  assert.match(instructions, /explicitly says task, to-do, reminder/u);
-  assert.match(instructions, /store the repeated pattern in recurrence/u);
-  assert.match(instructions, /expand recurring tasks/u);
-  assert.match(instructions, /habits, routines, recurring practices/u);
-  assert.match(instructions, /schedulable goal focus areas/u);
-  assert.match(instructions, /start meditating/u);
-  assert.match(instructions, /does not say habit or routine/u);
-  assert.match(instructions, /Personal routines/u);
-  assert.match(instructions, /unrelated standalone life habit/u);
-  assert.match(instructions, /keep them separate/u);
-  assert.match(instructions, /propose_schedule_goal_focus/u);
-  assert.match(instructions, /underspecified habits/u);
-  assert.match(instructions, /preferred focus block length/u);
-  assert.match(instructions, /otherwise 30 minutes/u);
-  assert.match(instructions, /read every morning/u);
-  assert.match(instructions, /daily cadence plus an activity-level preferred work period/u);
-  assert.match(instructions, /one to three blocks/u);
   assert.match(instructions, /short activity names/u);
   assert.match(instructions, /two or three candidate schedules/u);
   assert.match(instructions, /later reflection data/u);
@@ -166,42 +134,18 @@ test("assistant instructions constrain scheduling and workspace mutations", () =
   assert.match(instructions, /from tomorrow till Tuesday/u);
   assert.match(instructions, /schedule-relevant calendar events/u);
   assert.match(instructions, /Only create or update goals/u);
-  assert.match(instructions, /one-session deliverable clauses/u);
-  assert.match(instructions, /review investor notes tomorrow/u);
   assert.match(instructions, /Do not auto-create tasks from goals/u);
   assert.match(instructions, /goal-focus scheduling/u);
-  assert.match(instructions, /Productiv's job is to do the scheduling thinking/u);
-  assert.match(instructions, /choose a reasonable default placement/u);
-  assert.match(instructions, /important goal-focus and habit blocks earlier/u);
-  assert.match(instructions, /deterministic scheduling placement policy/u);
-  assert.match(instructions, /deterministic scheduling candidate slots/u);
-  assert.match(instructions, /recommendedBlock startTime\/endTime/u);
-  assert.match(instructions, /deterministic schedule assembly draft/u);
-  assert.match(instructions, /occurrenceKey for task occurrences/u);
-  assert.match(instructions, /not_requested/u);
-  assert.match(instructions, /task list, backlog, errands, todos, or everything/u);
   assert.match(instructions, /generate my schedule for next week/u);
   assert.match(instructions, /scheduling horizon/u);
   assert.match(instructions, /candidate startTime and endTime/u);
   assert.match(instructions, /Distinguish task tracking from calendar placement/u);
   assert.match(instructions, /due date, deadline, date range/u);
   assert.match(instructions, /exact startTime and endTime/u);
-  assert.match(instructions, /target day or window can come from/u);
-  assert.match(instructions, /do not require the user to pick one/u);
-  assert.match(instructions, /what time do you want/u);
-  assert.match(instructions, /choose the best slots yourself/u);
-  assert.match(instructions, /invite feedback/u);
-  assert.match(instructions, /schedulable item, duration, usable horizon/u);
   assert.match(instructions, /When enough information exists/u);
   assert.match(instructions, /propose_schedule_task/u);
   assert.match(instructions, /propose_schedule_goal_focus/u);
   assert.match(instructions, /confirm_schedule_proposal/u);
-  assert.match(instructions, /copy the exact proposalId/u);
-  assert.match(instructions, /do not substitute a different pending proposal/u);
-  assert.match(instructions, /too crowded/u);
-  assert.match(instructions, /breathing room/u);
-  assert.match(instructions, /availability, work hours, sleep windows/u);
-  assert.match(instructions, /do not create goals, tasks, habits/u);
   assert.match(instructions, /Never say a record was created/u);
   assert.match(instructions, /default hours metric/u);
   assert.match(instructions, /success-criteria metrics/u);
@@ -267,32 +211,7 @@ test("assistant turn input serializes the latest message and workspace context",
     workLogs: [{ id: "work-log-1", summary: "Drafted" }],
     messages: [{ role: "user", content: "hello" }],
     schedulingContext: { recoveryDays: [0] },
-    schedulingPlacementPolicy: {
-      defaultFocusBlockMinutes: 45,
-      rankedWorkPeriods: [{ period: "morning", rank: 1 }],
-    },
-    schedulingCandidateSlots: {
-      slots: [
-        {
-          recommendedBlock: {
-            startTime: "2026-06-25T12:00:00.000Z",
-            endTime: "2026-06-25T12:45:00.000Z",
-          },
-        },
-      ],
-    },
-    schedulingAssemblyDraft: {
-      assignments: [
-        {
-          actionTypeHint: "propose_schedule_task",
-          taskId: "task-1",
-          startTime: "2026-06-25T12:00:00.000Z",
-          endTime: "2026-06-25T12:45:00.000Z",
-        },
-      ],
-    },
     pendingScheduleProposals: [{ id: "proposal-1" }],
-    recentAppliedScheduleProposals: [{ id: "proposal-applied", status: "applied" }],
     taskSchedulingContext: [
       {
         id: "task-1",
@@ -307,15 +226,7 @@ test("assistant turn input serializes the latest message and workspace context",
   assert.match(input, /Current timestamp:/u);
   assert.match(input, /Latest user message:\nSchedule task one tomorrow at 9am\./u);
   assert.match(input, /"title": "Launch"/u);
-  assert.match(input, /Deterministic scheduling placement policy/u);
-  assert.match(input, /"defaultFocusBlockMinutes": 45/u);
-  assert.match(input, /Deterministic scheduling candidate slots/u);
-  assert.match(input, /"recommendedBlock"/u);
-  assert.match(input, /Deterministic schedule assembly draft/u);
-  assert.match(input, /"actionTypeHint": "propose_schedule_task"/u);
   assert.match(input, /Pending schedule proposals/u);
-  assert.match(input, /Recent applied schedule proposals/u);
-  assert.match(input, /proposal-applied/u);
   assert.match(input, /Task scheduling context/u);
   assert.match(input, /needs_scheduling/u);
   assert.match(input, /Schedule-relevant calendar events/u);
@@ -368,7 +279,6 @@ test("normalizeAssistantModelResponse accepts every supported action type", () =
     assert.equal(result.actions[0]?.type, actionType);
     assert.equal(result.actions[0]?.title, "Launch beta");
     assert.equal(result.actions[0]?.focusId, "focus-1");
-    assert.equal(result.actions[0]?.occurrenceKey, "task-1:2026-06-20");
     assert.deepEqual(result.actions[0]?.successCriteria, ["Five interviews"]);
     assert.equal(result.actions[0]?.focusAreas[0]?.title, "Interview users");
     assert.deepEqual(result.actions[0]?.scheduleGuidance, {
@@ -380,14 +290,6 @@ test("normalizeAssistantModelResponse accepts every supported action type", () =
     });
     assert.deepEqual(result.actions[0]?.constraints, ["Keep weekends open"]);
     assert.equal(result.actions[0]?.targetValue, 10);
-    assert.deepEqual(result.actions[0]?.recurrence, {
-      frequency: "weekly",
-      interval: 1,
-      daysOfWeek: [1, 3],
-      endsAt: null,
-      sourceText: "weekly report",
-      scheduledOccurrences: [],
-    });
     assert.equal(result.actions[0]?.isActive, true);
   }
 });
@@ -540,107 +442,6 @@ test("normalizeAssistantModelResponse sanitizes goal focus action fields", () =>
     },
   ]);
   assert.equal(result.actions[1]?.scheduleGuidance, null);
-});
-
-test("normalizeAssistantModelResponse drops context-only workspace actions", () => {
-  const result = normalizeAssistantModelResponse({
-    assistantMessage: "Done",
-    contextSummary: "Summary",
-    navigationHint: "calendar",
-    actions: [
-      {
-        ...modelAction("create_goal"),
-        title: "Prepare product launch",
-        focusAreas: [
-          {
-            id: null,
-            title: "Daily focus routine draft launch narrative 60 minutes",
-            description: "Draft the launch narrative.",
-            status: "active",
-            defaultDurationMinutes: 60,
-            cadence: "daily",
-          },
-          {
-            id: null,
-            title: "I work weekdays 8am-11am",
-            description: "Availability context from the message.",
-            status: "active",
-            defaultDurationMinutes: 30,
-            cadence: "weekdays",
-          },
-        ],
-      },
-      {
-        ...modelAction("create_goal"),
-        title: "I prefer launch narrative in afternoon",
-      },
-      {
-        ...modelAction("create_task"),
-        title: "I sleep 6pm-7am",
-        focusAreas: [],
-      },
-      {
-        ...modelAction("propose_schedule_task"),
-        title: "Class Tuesday 8am-11am",
-        focusAreas: [],
-      },
-      {
-        ...modelAction("propose_schedule_goal_focus"),
-        title: "I work weekends 9am-1pm",
-        focusAreas: [],
-      },
-      {
-        ...modelAction("create_task"),
-        title: "Review investor notes tomorrow",
-        focusAreas: [],
-      },
-    ],
-    schedulingPreferenceCandidates: [
-      {
-        kind: "preferred_work_period",
-        title: "Launch narrative afternoon preference",
-        detail: "The user prefers launch narrative work in the afternoon.",
-        strength: "soft_preference",
-        confidence: "high",
-        applicabilityScope: "goal",
-        domain: null,
-        goalTitle: "Prepare product launch",
-        activityTitle: "Launch narrative",
-        temporalScope: "afternoon",
-        evidence: "I prefer launch narrative in the afternoon.",
-      },
-    ],
-  });
-
-  assert.deepEqual(
-    result.actions.map((action) => action.title),
-    ["Prepare product launch", "Review investor notes tomorrow"],
-  );
-  assert.deepEqual(result.actions[0]?.focusAreas, [
-    {
-      id: "draft-launch-narrative",
-      title: "Draft launch narrative",
-      description: "Draft the launch narrative.",
-      status: "active",
-      defaultDurationMinutes: 60,
-      cadence: "daily",
-    },
-  ]);
-  assert.deepEqual(result.schedulingPreferenceCandidates, [
-    {
-      kind: "preferred_work_period",
-      title: "Launch narrative afternoon preference",
-      detail: "The user prefers launch narrative work in the afternoon.",
-      strength: "soft_preference",
-      confidence: "high",
-      applicabilityScope: "goal",
-      domain: null,
-      goalTitle: "Prepare product launch",
-      activityTitle: "Launch narrative",
-      temporalScope: "afternoon",
-      evidence: "I prefer launch narrative in the afternoon.",
-    },
-  ]);
 });
 
 test("normalizeAssistantModelResponse rejects malformed top-level responses", () => {

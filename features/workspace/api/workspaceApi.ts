@@ -6,7 +6,6 @@ import type {
   MetricProgressEntry,
   ScheduleIntent,
   Task,
-  TaskRecurrence,
   TaskStatus,
   WorkLog,
 } from "@/features/workspace/types";
@@ -68,7 +67,6 @@ export async function updateTask(
     status?: TaskStatus;
     estimatedMinutes?: number | null;
     dueAt?: string | null;
-    recurrence?: TaskRecurrence | null;
     scheduleIntent?: ScheduleIntent;
     sessionToken?: string | null;
   },
@@ -87,7 +85,6 @@ export async function updateTask(
       status: input.status,
       estimatedMinutes: input.estimatedMinutes,
       dueAt: input.dueAt,
-      recurrence: input.recurrence,
       scheduleIntent: input.scheduleIntent,
     }),
   });

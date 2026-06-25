@@ -1,25 +1,17 @@
 import { View } from "react-native";
-import { CalendarTimeWindow, timeToY } from "../../layout/calendarLayout";
+import { HOURS, timeToY } from "../../layout/calendarLayout";
 
-type HourLinesProps = {
-  timeWindow: CalendarTimeWindow;
-};
-
-export default function HourLines({ timeWindow }: HourLinesProps) {
-  const hourCount = timeWindow.endHour - timeWindow.startHour;
-
-  return Array.from({ length: hourCount - 1 }, (_, i) => {
-    const hour = timeWindow.startHour + i + 1;
-
+export default function HourLines() {
+  return Array.from({ length: HOURS - 1 }, (_, i) => {
     return (
       <View
-        key={hour}
+        key={i}
         pointerEvents="none"
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          top: timeToY(hour, 0, undefined, timeWindow.startHour),
+          top: timeToY(i + 1),
           height: 1,
           backgroundColor: "#eadfcd",
           opacity: 1,

@@ -13,16 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/features/auth/AuthProvider";
 import WorkspaceAuthGate from "@/features/workspace/components/WorkspaceAuthGate";
 import { useWorkspace } from "@/features/workspace/WorkspaceProvider";
-import type { Goal, GoalFocusArea } from "@/features/workspace/types";
-
-type ScheduledFocusBlock = {
-  focusId: string | null;
-  title: string;
-  startTime: string;
-  endTime: string;
-};
-
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+import type { Goal } from "@/features/workspace/types";
 
 export default function GoalsScreen() {
   const { isAuthReady, isAuthenticated } = useAuth();
@@ -164,7 +155,6 @@ export default function GoalsScreen() {
           const linkedLogs = workLogs
             .filter((workLog) => workLog.goalId === goal.id)
             .slice(0, 2);
-          const scheduledFocusBlocks = getScheduledFocusBlocks(goal.scheduleGuidance);
           const scheduleGuidanceLabels = getScheduleGuidanceLabels(
             goal.scheduleGuidance,
           );
@@ -266,14 +256,49 @@ export default function GoalsScreen() {
                   <SectionLabel label="Current focus" />
                   <View style={{ gap: 8 }}>
                     {goal.focusAreas.slice(0, 4).map((focusArea) => (
-                      <FocusAreaSummary
+                      <View
                         key={focusArea.id}
-                        focusArea={focusArea}
-                        scheduledBlocks={getScheduledFocusBlocksForFocusArea(
-                          scheduledFocusBlocks,
-                          focusArea,
-                        )}
-                      />
+                        style={{
+                          gap: 4,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#132521",
+                            fontWeight: "700",
+                          }}
+                        >
+                          {focusArea.title}
+                        </Text>
+                        {focusArea.description ? (
+                          <Text
+                            style={{
+                              color: "#5a6762",
+                              lineHeight: 20,
+                            }}
+                          >
+                            {focusArea.description}
+                          </Text>
+                        ) : null}
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            flexWrap: "wrap",
+                            gap: 8,
+                          }}
+                        >
+                          <InfoChip label={focusArea.status} />
+                          {focusArea.defaultDurationMinutes ? (
+                            <InfoChip
+                              label={`${focusArea.defaultDurationMinutes} min`}
+                            />
+                          ) : null}
+                          {focusArea.cadence ? (
+                            <InfoChip label={focusArea.cadence} />
+                          ) : null}
+                        </View>
+                      </View>
                     ))}
                   </View>
                 </View>
@@ -375,11 +400,6 @@ export default function GoalsScreen() {
                 <InfoChip
                   label={`${linkedLogs.length} recent log${linkedLogs.length === 1 ? "" : "s"}`}
                 />
-                {scheduledFocusBlocks.length > 0 ? (
-                  <InfoChip
-                    label={`${scheduledFocusBlocks.length} scheduled focus block${scheduledFocusBlocks.length === 1 ? "" : "s"}`}
-                  />
-                ) : null}
                 <InfoChip label={`Priority ${goal.priorityRank}`} />
               </View>
 
@@ -504,60 +524,6 @@ export default function GoalsScreen() {
   );
 }
 
-function FocusAreaSummary({
-  focusArea,
-  scheduledBlocks,
-}: {
-  focusArea: GoalFocusArea;
-  scheduledBlocks: ScheduledFocusBlock[];
-}) {
-  const scheduleLabels = getFocusScheduleLabels(scheduledBlocks);
-
-  return (
-    <View
-      style={{
-        gap: 4,
-        paddingVertical: 4,
-      }}
-    >
-      <Text
-        style={{
-          color: "#132521",
-          fontWeight: "700",
-        }}
-      >
-        {focusArea.title}
-      </Text>
-      {focusArea.description ? (
-        <Text
-          style={{
-            color: "#5a6762",
-            lineHeight: 20,
-          }}
-        >
-          {focusArea.description}
-        </Text>
-      ) : null}
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 8,
-        }}
-      >
-        <InfoChip label={focusArea.status} />
-        {focusArea.defaultDurationMinutes ? (
-          <InfoChip label={`${focusArea.defaultDurationMinutes} min`} />
-        ) : null}
-        {focusArea.cadence ? <InfoChip label={focusArea.cadence} /> : null}
-        {scheduleLabels.map((label) => (
-          <InfoChip key={`${focusArea.id}-${label}`} label={label} />
-        ))}
-      </View>
-    </View>
-  );
-}
-
 function InfoChip({ label }: { label: string }) {
   return (
     <View
@@ -633,117 +599,6 @@ function getScheduleGuidanceLabels(guidance: Record<string, unknown>) {
 
   labels.push(...timeProtectionPlan);
   return labels;
-}
-
-function getScheduledFocusBlocks(guidance: Record<string, unknown>) {
-  const value = guidance.scheduledFocusBlocks;
-
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .flatMap((item): ScheduledFocusBlock[] => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return [];
-      }
-
-      const record = item as Record<string, unknown>;
-      const title = typeof record.title === "string" ? record.title.trim() : "";
-      const startTime =
-        typeof record.startTime === "string" ? record.startTime : "";
-      const endTime = typeof record.endTime === "string" ? record.endTime : "";
-
-      if (
-        title.length === 0 ||
-        !isValidDateString(startTime) ||
-        !isValidDateString(endTime)
-      ) {
-        return [];
-      }
-
-      return [
-        {
-          focusId: typeof record.focusId === "string" ? record.focusId : null,
-          title,
-          startTime,
-          endTime,
-        },
-      ];
-    })
-    .sort(
-      (left, right) => Date.parse(left.startTime) - Date.parse(right.startTime),
-    );
-}
-
-function getScheduledFocusBlocksForFocusArea(
-  blocks: ScheduledFocusBlock[],
-  focusArea: GoalFocusArea,
-) {
-  return blocks.filter((block) => {
-    if (block.focusId === focusArea.id) {
-      return true;
-    }
-
-    if (block.focusId !== null) {
-      return false;
-    }
-
-    return (
-      normalizeComparableTitle(block.title) ===
-      normalizeComparableTitle(focusArea.title)
-    );
-  });
-}
-
-function getFocusScheduleLabels(blocks: ScheduledFocusBlock[]) {
-  const now = new Date();
-  const nextBlock = blocks.find(
-    (block) => Date.parse(block.startTime) >= now.getTime(),
-  );
-  const representativeBlock = nextBlock ?? blocks.at(-1);
-
-  if (!representativeBlock) {
-    return [];
-  }
-
-  return [
-    `${nextBlock ? "Next" : "Last"} ${formatScheduledFocusTime(
-      representativeBlock.startTime,
-    )}`,
-    ...(blocks.length > 1 ? [`${blocks.length} scheduled`] : []),
-  ];
-}
-
-function formatScheduledFocusTime(value: string) {
-  const date = new Date(value);
-  const weekday = WEEKDAY_LABELS[date.getDay()] ?? "";
-  const time = formatClockTime(date);
-
-  return `${weekday} ${time}`.trim();
-}
-
-function formatClockTime(date: Date) {
-  const hour = date.getHours();
-  const minute = date.getMinutes();
-  const hour12 = hour % 12 || 12;
-  const suffix = hour >= 12 ? "PM" : "AM";
-
-  return minute === 0
-    ? `${hour12} ${suffix}`
-    : `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
-}
-
-function isValidDateString(value: string) {
-  return value.length > 0 && Number.isFinite(Date.parse(value));
-}
-
-function normalizeComparableTitle(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
 }
 
 function LabeledField({

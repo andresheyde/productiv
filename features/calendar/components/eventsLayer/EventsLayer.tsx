@@ -10,11 +10,7 @@ import {
 } from "date-fns";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import {
-  CalendarTimeWindow,
-  dateToY,
-  minutesToY,
-} from "../../layout/calendarLayout";
+import { dateToY, minutesToY } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
 import EventBlock from "./EventBlock";
 
@@ -23,7 +19,6 @@ type EventsLayerProps = {
   leftDate: Date;
   numDays: number;
   columnWidth: number;
-  timeWindow: CalendarTimeWindow;
   selectedEvent: CalendarEvent | null;
   onEventBlockPress: (arg0: CalendarEvent) => void;
   onEventsLayerEmptyPress: (arg0: number, arg1: number) => void;
@@ -36,7 +31,6 @@ export default function EventsLayer({
   leftDate,
   numDays,
   columnWidth,
-  timeWindow,
   selectedEvent,
   onEventBlockPress,
   onEventsLayerEmptyPress,
@@ -67,34 +61,23 @@ export default function EventsLayer({
     blockStartTime: Date,
     blockEndTime: Date,
   ) {
-    const visibleStartTime = getVisibleDayTime(blockStartTime, timeWindow.startHour);
-    const visibleEndTime = getVisibleDayTime(blockStartTime, timeWindow.endHour);
-    const clippedStartTime = isBefore(blockStartTime, visibleStartTime)
-      ? visibleStartTime
-      : blockStartTime;
-    const clippedEndTime = isAfter(blockEndTime, visibleEndTime)
-      ? visibleEndTime
-      : blockEndTime;
-
     if (
-      isBefore(clippedStartTime, leftDate) ||
-      isAfter(clippedStartTime, rightDate) ||
-      !isBefore(clippedStartTime, clippedEndTime) ||
-      isEqual(clippedStartTime, clippedEndTime)
+      isBefore(blockStartTime, leftDate) ||
+      isAfter(blockStartTime, rightDate) ||
+      isEqual(blockStartTime, blockEndTime)
     ) {
       return;
     }
-
     return (
       <View
-        key={`${event.id}:${clippedStartTime.toISOString()}`}
+        key={`${event.id}:${blockStartTime}`}
         style={{
           position: "absolute",
           left:
-            differenceInCalendarDays(clippedStartTime, leftDate) * columnWidth,
+            differenceInCalendarDays(blockStartTime, leftDate) * columnWidth,
           width: columnWidth,
-          top: dateToY(clippedStartTime, undefined, timeWindow.startHour),
-          height: minutesToY(differenceInMinutes(clippedEndTime, clippedStartTime)),
+          top: dateToY(blockStartTime),
+          height: minutesToY(differenceInMinutes(blockEndTime, blockStartTime)),
         }}
       >
         <EventBlock
@@ -169,10 +152,4 @@ export default function EventsLayer({
         })}
     </View>
   );
-}
-
-function getVisibleDayTime(date: Date, hour: number) {
-  const dayTime = startOfDay(date);
-  dayTime.setHours(hour, 0, 0, 0);
-  return dayTime;
 }

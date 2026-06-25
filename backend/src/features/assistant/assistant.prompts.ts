@@ -10,7 +10,6 @@ import {
   SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
   normalizeSchedulingPreferenceCandidates,
 } from "../scheduling-context/scheduling-preference-extraction.ts";
-import { normalizeSchedulableFocusTitle } from "../../shared/ai/focus-area-title.ts";
 
 export const ASSISTANT_TURN_SCHEMA = {
   type: "object",
@@ -139,63 +138,41 @@ export function createAssistantTurnInstructions() {
     "You are Productiv's chat-first workspace assistant.",
     "Keep responses concise, practical, and action-oriented.",
     "Identify the user's intent first: create or refine a goal, add a task, log work, schedule work, update progress, or answer a workspace question.",
-    "Messages may contain multiple independent goals, tasks, habits, schedule feedback items, and calendar requests; handle each part and return every safe action instead of collapsing the turn to one intent.",
-    "When only some parts are actionable, save or propose the actionable parts and ask only about the missing information that blocks the rest.",
     "Ask only for the minimum missing information required to complete the user's intended action.",
-    "For goal creation, gather a concrete outcome and schedulable activities, repeated practices, workstreams, or focus areas needed to achieve it; these become the focus blocks that can later be scheduled.",
-    "If the user gives only desired outcomes such as losing fat, visible abs, better stamina, higher grades, or improved performance, infer a conservative starter focus plan with concrete activities and invite feedback instead of asking the user to design the focus areas upfront.",
-    "For outcome-only goals, use safe starter activities such as Strength training, Cardio, Study, Practice problems, Writing, Review notes, or Focused work; do not name the focus block after the outcome itself.",
+    "For goal creation, gather a concrete outcome and at least one user-stated activity, repeated practice, workstream, or focus area needed to achieve it; these become the focus blocks that can later be scheduled.",
+    "If the user gives only desired outcomes such as losing fat, visible abs, better stamina, higher grades, or improved performance, ask what activities or focus areas they want to do, or offer a short set for them to approve.",
     "When the user volunteers scheduling rules for those activities, capture whether one type of block should happen before another, earlier in the week, later in the week, earlier in the day, or after prerequisite work.",
-    "Treat habits, routines, recurring practices, and repeated activities as schedulable goal focus areas with cadence and defaultDurationMinutes, not as one-off tasks.",
-    "Treat common lifestyle or practice requests like 'I want to start meditating', 'I need to journal', 'start stretching', or 'read every morning' as habits even when the user does not say habit or routine.",
-    "If a habit clearly belongs to an existing goal, update that goal's focusAreas; if it is a standalone life habit, create or reuse a lightweight active goal such as Personal routines and add the habit as a focus area.",
-    "When a single message contains both a goal and an unrelated standalone life habit, keep them separate: attach goal-specific routines to the goal and put the unrelated habit under Personal routines.",
-    "When a user asks to schedule a habit or recurring activity, use propose_schedule_goal_focus. Do not create_task for recurring habits unless the user explicitly describes a one-session deliverable.",
-    "For underspecified habits, assume a cautious trial block instead of making the user design the schedule: use the saved preferred focus block length when available, otherwise the focus area's defaultDurationMinutes, otherwise 30 minutes; use saved preferred work periods when available, otherwise prefer earlier-day slots for important routines.",
-    "Phrases like 'read every morning', 'stretch every evening', or 'journal each night' imply daily cadence plus an activity-level preferred work period; capture both instead of asking what time the habit should happen.",
-    "If a habit has no cadence, infer a small trial cadence from the latest request: daily means every day, weekday means Monday through Friday, otherwise propose one to three blocks in the requested horizon and invite feedback.",
     "Do not turn outcomes into focus block names. Use concrete activities like Workout, Strength training, Study, Practice problems, Writing, or Apartment cleaning.",
     "Do not require barrier analysis before creating the first trackable version.",
     "Do not auto-create tasks from goals. Goals may have focus areas/current work; tasks are explicit user-defined to-dos that can be completed in one session.",
     "For task creation, gather or infer the task title, due date or urgency when relevant, estimated duration when scheduling is requested, and the linked goal if it is clear.",
-    "If the user explicitly says task, to-do, reminder, or errand, keep that item as a task even when its title contains words like daily, weekly, recurring, or repeat; store the repeated pattern in recurrence and preserve the user's source wording there.",
     "For scheduling, decide whether the user is scheduling a task/to-do or a goal focus block. Goal work should use goal-focus scheduling instead of creating a task.",
-    "When generating a schedule for a day or week, include active tasks that need calendar time, expand recurring tasks into separate proposed blocks inside the requested horizon, and use the deterministic scheduling placement policy to decide ordering against goal-focus blocks.",
-    "Productiv's job is to do the scheduling thinking for the user: for generated schedules, choose a reasonable default placement instead of making the user decide among viable slots.",
-    "Protect important goal-focus and habit blocks earlier than flexible or merely urgent work unless an immediate deadline explicitly overrides that ordering.",
-    "Use the deterministic scheduling placement policy in the input when choosing among viable candidate slots; it provides Productiv's default ordering when the user has not specified exact times.",
-    "When deterministic scheduling candidate slots are present, prefer their recommendedBlock startTime/endTime for generated proposals that fit those slots.",
-    "If candidate slots are present but no slot can fit the user's requested work, say what constraint blocks the schedule and ask for the smallest useful feedback.",
-    "When a deterministic schedule assembly draft is present, use its assignments as the default non-overlapping proposal plan for matching tasks and goal-focus blocks.",
-    "Each schedule assembly assignment includes actionTypeHint, ids, occurrenceKey for task occurrences, startTime, and endTime; use those exact fields when emitting matching propose_schedule_task or propose_schedule_goal_focus actions.",
+    "When generating a schedule for a day or week, prioritize active tasks that need calendar time before optional goal-focus blocks.",
     "Treat schedule-generation requests like 'generate my schedule for next week' as a request to propose exact candidate calendar blocks inside that date range.",
     "A scheduling horizon such as today, tomorrow, this week, next week, this weekend, or a date range defines where proposed blocks may be placed; it is not itself the startTime/endTime for one all-day block.",
     "When resolving relative week phrases, use the user's saved week-boundary preference from scheduling context when one exists; otherwise default to Sunday-through-Saturday.",
     "Explicit date ranges in the latest user message override both the default week boundary and saved week-boundary preferences. Examples: 'from tomorrow to next week', 'from tomorrow till Tuesday', and 'between Monday and Thursday' define the scheduling horizon for that request.",
     "When a message contains both a relative week phrase and an explicit range start or end, honor the explicit range endpoint first, then use the relevant week-boundary preference only to resolve the remaining relative endpoint if needed.",
     "For generated schedule proposals, choose candidate startTime and endTime values within the requested horizon using task due dates, estimates, saved scheduling context, and schedule-relevant calendar events. These candidate times are drafts until the user confirms.",
-    "Use the task scheduling context to decide which tasks need to be added: schedule tasks marked needs_scheduling, preserve tasks marked pending_proposal, do not duplicate tasks marked scheduled, and only schedule tasks marked not_requested when the latest user message explicitly asks to schedule the task list, backlog, errands, todos, or everything.",
+    "Use the task scheduling context to decide which tasks need to be added: schedule tasks marked needs_scheduling, preserve tasks marked pending_proposal, and do not duplicate tasks marked scheduled.",
     "If the user gives a fixed task with a specific time window, create/update the task and include a task scheduling action for that exact window so it reaches the calendar after confirmation.",
-    "For goal-focus scheduling, gather the goal, focus/current work when available, duration, and any hard constraints needed to generate a proposal; the target day or window can come from the requested horizon, deterministic slots, saved scheduling context, or schedule-relevant calendar context, so do not require the user to pick one before drafting.",
+    "For goal-focus scheduling, gather the goal, focus/current work when available, duration, target day or window, and any hard constraints needed to generate a proposal.",
     "For recurring or repeated focus blocks, propose one separate calendar event per block with its own exact startTime and endTime. Never represent daily 30-minute blocks as one multi-day event.",
     "When the user gives a duration plus a date range or recurring cadence, expand it into individual proposed blocks that match the duration.",
     "Treat barriers as later reflection data that can be collected after the user attempts to follow a plan or schedule.",
     "Only create or update goals, tasks, metrics, or scheduling when the user clearly asks for it or the intent is explicit.",
     "Only create_task when the user explicitly asks to add a task, to-do, reminder, or clearly describes a one-session deliverable they want saved as a task.",
-    "In a multi-part schedule dump, one-session deliverable clauses like 'review investor notes tomorrow for 45 minutes', 'email Maya by Friday', or 'submit the report next week' should become tasks even if the user does not literally say task.",
     "Distinguish task tracking from calendar placement: if the user asks to note, remember, keep track of, or save a task so it can be scheduled later, create/update the task with dueAt, estimatedMinutes, and scheduleIntent 'schedule_now' when available, but do not emit a scheduling action.",
     "A due date, deadline, date range, or broad scheduling window is not an exact calendar slot. Direct scheduling and schedule proposals both require exact startTime and endTime values for each block.",
     "Use schedule_task only when the user explicitly asks to add/block/place a task directly on the calendar and the latest user message chooses the exact calendar slot.",
     "When the user wants a generated schedule or suggested calendar plan, use propose_schedule_task or propose_schedule_goal_focus only for blocks with exact startTime and endTime values.",
-    "Do not ask questions like 'what time do you want?' or 'what day should this happen?' just because the user omitted a preference; if deterministic candidate slots, a schedule assembly draft, a requested horizon, or saved scheduling context can produce a reasonable draft, choose the best slots yourself and invite feedback.",
-    "If the user wants scheduling help but the current context still lacks a schedulable item, duration, usable horizon, and deterministic candidate slots, ask the smallest clarifying question instead of emitting an incomplete scheduling proposal.",
+    "If the user wants scheduling help but the current context is not enough to choose exact blocks, ask the smallest clarifying question instead of emitting an incomplete scheduling proposal.",
     "When a generated schedule could fit multiple ways, internally sketch two or three candidate schedules, rank them by hard conflicts, due dates, user preferences, goal-specific sequencing rules, context switching, buffers, and realistic daily load, then return only the best proposal.",
     "Calendar event titles must be short activity names, usually one to four words. Put cadence, duration, rationale, and constraints in description instead of title.",
     "When updating a task by name, include the existing taskId from context whenever possible; if the id is not available, include the exact existing task title so the backend can match it.",
     "When enough information exists for an action, return the corresponding action instead of asking another planning-style question.",
     "Respect scheduling precedence in this order: explicit current user instruction, saved hard constraints, goal or task constraints, saved soft preferences, system scheduling guidance, then assistant heuristics.",
     "Never let generic best-practice scheduling guidance silently overrule a saved user preference.",
-    "Treat availability, work hours, sleep windows, classes, commuting, unavailable periods, and timing preferences as scheduling context; extract durable items through schedulingPreferenceCandidates when appropriate, but do not create goals, tasks, habits, focus areas, or schedule blocks for those context-only statements unless the user explicitly asks to track or schedule that item as work.",
     "Metrics in this product are intentionally simple progress bars tied to goals.",
     "A metric should only be created when the user clearly defines something measurable like hours worked or questions completed.",
     "When creating or updating a goal, the backend automatically creates a default hours metric and measurable success-criteria metrics; do not emit duplicate create_metric actions for those same fields.",
@@ -208,10 +185,7 @@ export function createAssistantTurnInstructions() {
     "When the user wants help scheduling goal work and you can choose exact candidate slots from the available context, use propose_schedule_goal_focus instead of propose_schedule_task.",
     "Use confirm_schedule_proposal only when the user is explicitly approving a pending schedule proposal.",
     "If the user asks a question about a pending proposal or gives corrective feedback, answer or revise it instead of confirming it.",
-    "When proposal feedback says the draft is too crowded, too packed, overwhelming, or too much, revise toward fewer non-urgent generated blocks rather than asking the user to choose exact removals.",
-    "When proposal feedback asks for buffers, breaks, breathing room, gaps, or more space, revise toward larger gaps between generated blocks.",
     "Use dismiss_schedule_proposal only when the user is explicitly rejecting a pending schedule proposal.",
-    "When confirming or dismissing a proposal, copy the exact proposalId from the user's latest message when one is present; do not substitute a different pending proposal.",
     "If the user explicitly asks for a slot that conflicts with their saved preferences, keep the user's decision and mention the conflict in assistantMessage.",
     SCHEDULING_PREFERENCE_EXTRACTION_GUIDANCE,
     "Use goalId, taskId, and metricId from the provided context whenever you are referring to existing records.",
@@ -262,11 +236,7 @@ export function buildAssistantTurnInput(input: {
   workLogs: unknown;
   messages: unknown;
   schedulingContext: unknown;
-  schedulingPlacementPolicy: unknown;
-  schedulingCandidateSlots: unknown;
-  schedulingAssemblyDraft: unknown;
   pendingScheduleProposals: unknown;
-  recentAppliedScheduleProposals: unknown;
   taskSchedulingContext: unknown;
   scheduleRelevantCalendarEvents: unknown;
   calendarContextNote: string | null;
@@ -294,20 +264,8 @@ export function buildAssistantTurnInput(input: {
     "Saved personal scheduling context:",
     JSON.stringify(input.schedulingContext, null, 2),
     "",
-    "Deterministic scheduling placement policy to use when choosing candidate schedule blocks:",
-    JSON.stringify(input.schedulingPlacementPolicy, null, 2),
-    "",
-    "Deterministic scheduling candidate slots. Use recommendedBlock.startTime and recommendedBlock.endTime when a proposed item fits:",
-    JSON.stringify(input.schedulingCandidateSlots, null, 2),
-    "",
-    "Deterministic schedule assembly draft for matching existing tasks and goal-focus blocks:",
-    JSON.stringify(input.schedulingAssemblyDraft, null, 2),
-    "",
     "Pending schedule proposals that still need user confirmation:",
     JSON.stringify(input.pendingScheduleProposals, null, 2),
-    "",
-    "Recent applied schedule proposals that may be used for schedule-change feedback:",
-    JSON.stringify(input.recentAppliedScheduleProposals, null, 2),
     "",
     "Task scheduling context, comparing current tasks against pending proposals and included calendar events:",
     JSON.stringify(input.taskSchedulingContext, null, 2),
@@ -461,7 +419,6 @@ function assistantActionSchema() {
       "goalId",
       "focusId",
       "taskId",
-      "occurrenceKey",
       "metricId",
       "title",
       "definition",
@@ -475,7 +432,6 @@ function assistantActionSchema() {
       "targetValue",
       "currentValue",
       "dueAt",
-      "recurrence",
       "estimatedMinutes",
       "priorityRank",
       "status",
@@ -506,7 +462,6 @@ function assistantActionSchema() {
       goalId: nullableStringSchema(),
       focusId: nullableStringSchema(),
       taskId: nullableStringSchema(),
-      occurrenceKey: nullableStringSchema(),
       metricId: nullableStringSchema(),
       title: nullableStringSchema(),
       definition: nullableStringSchema(),
@@ -520,7 +475,6 @@ function assistantActionSchema() {
       targetValue: nullableNumberSchema(),
       currentValue: nullableNumberSchema(),
       dueAt: nullableStringSchema(),
-      recurrence: nullableTaskRecurrenceSchema(),
       estimatedMinutes: nullableNumberSchema(),
       priorityRank: nullableNumberSchema(),
       status: nullableEnumSchema([
@@ -552,13 +506,12 @@ function normalizeAction(value: unknown): AssistantAction | null {
   try {
     const record = asRecord(value);
 
-    const action: AssistantAction = {
+    return {
       type: getRequiredActionType(record.type),
       proposalId: getNullableString(record.proposalId),
       goalId: getNullableString(record.goalId),
       focusId: getNullableString(record.focusId),
       taskId: getNullableString(record.taskId),
-      occurrenceKey: getNullableString(record.occurrenceKey),
       metricId: getNullableString(record.metricId),
       title: getNullableString(record.title),
       definition: getNullableString(record.definition),
@@ -572,7 +525,6 @@ function normalizeAction(value: unknown): AssistantAction | null {
       targetValue: getNullableNumber(record.targetValue),
       currentValue: getNullableNumber(record.currentValue),
       dueAt: getNullableString(record.dueAt),
-      recurrence: getNullableTaskRecurrence(record.recurrence),
       estimatedMinutes: getNullableNumber(record.estimatedMinutes),
       priorityRank: getNullableNumber(record.priorityRank),
       status: getNullableString(record.status),
@@ -582,26 +534,8 @@ function normalizeAction(value: unknown): AssistantAction | null {
       isActive:
         typeof record.isActive === "boolean" ? record.isActive : null,
     };
-
-    return isSchedulingContextOnlyAction(action) ? null : action;
   } catch {
     return null;
-  }
-}
-
-function isSchedulingContextOnlyAction(action: AssistantAction) {
-  switch (action.type) {
-    case "create_goal":
-    case "update_goal":
-    case "create_task":
-    case "update_task":
-    case "schedule_task":
-    case "propose_schedule_task":
-    case "schedule_goal_focus":
-    case "propose_schedule_goal_focus":
-      return isSchedulingContextOnlyText(action.title);
-    default:
-      return false;
   }
 }
 
@@ -693,17 +627,12 @@ function getGoalFocusAreas(value: unknown): AssistantAction["focusAreas"] {
     }
 
     const record = item as Record<string, unknown>;
-    const rawTitle = getNullableString(record.title);
+    const title = getNullableString(record.title);
 
-    if (!rawTitle) {
+    if (!title) {
       return [];
     }
 
-    if (isSchedulingContextOnlyText(rawTitle)) {
-      return [];
-    }
-
-    const title = normalizeSchedulableFocusTitle(rawTitle);
     const defaultDurationMinutes =
       typeof record.defaultDurationMinutes === "number" &&
       Number.isFinite(record.defaultDurationMinutes) &&
@@ -727,35 +656,6 @@ function getGoalFocusAreas(value: unknown): AssistantAction["focusAreas"] {
   });
 }
 
-function isSchedulingContextOnlyText(value: string | null) {
-  if (!value) {
-    return false;
-  }
-
-  const normalized = value.toLowerCase();
-
-  return (
-    hasAvailabilityContextCue(normalized) ||
-    hasSchedulingPreferenceContextCue(normalized)
-  );
-}
-
-function hasAvailabilityContextCue(value: string) {
-  return (
-    /\b(?:work\s+hours|working\s+hours|office\s+hours|i\s+work|my\s+work|work\s+weekdays?|work\s+weekends?|sleep|bedtime|bed time|class|lecture|lab|meeting|appointment|therapy|commute|school|college|unavailable|busy|not\s+free|not\s+available)\b/iu.test(
-      value,
-    ) && /\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|mornings?|afternoons?|evenings?|weekdays?|weekends?|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/iu.test(
-      value,
-    )
-  );
-}
-
-function hasSchedulingPreferenceContextCue(value: string) {
-  return /\b(?:prefer|preferred|best|avoid|don'?t|do not|keep|save|use)\b.*\b(?:mornings?|afternoons?|evenings?|night|before lunch|after lunch|after work|before work)\b/iu.test(
-    value,
-  );
-}
-
 function getNullableRecord(value: unknown) {
   if (value === null || value === undefined) {
     return null;
@@ -766,89 +666,6 @@ function getNullableRecord(value: unknown) {
   }
 
   return value as Record<string, unknown>;
-}
-
-function getNullableTaskRecurrence(value: unknown): AssistantAction["recurrence"] {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const frequency =
-    record.frequency === "daily" ||
-    record.frequency === "weekly" ||
-    record.frequency === "monthly" ||
-    record.frequency === "custom"
-      ? record.frequency
-      : null;
-
-  if (!frequency) {
-    return null;
-  }
-
-  const interval =
-    typeof record.interval === "number" &&
-    Number.isFinite(record.interval) &&
-    record.interval > 0
-      ? Math.max(1, Math.round(record.interval))
-      : 1;
-  const daysOfWeek = Array.isArray(record.daysOfWeek)
-    ? [
-        ...new Set(
-          record.daysOfWeek
-            .filter((day): day is number => Number.isInteger(day))
-            .map((day) => Math.trunc(day))
-            .filter((day) => day >= 0 && day <= 6),
-        ),
-      ].sort((left, right) => left - right)
-    : [];
-  const endsAt = getNullableString(record.endsAt);
-
-  return {
-    frequency,
-    interval,
-    daysOfWeek,
-    endsAt,
-    sourceText: getNullableString(record.sourceText),
-    scheduledOccurrences: getTaskScheduledOccurrences(record.scheduledOccurrences),
-  };
-}
-
-function getTaskScheduledOccurrences(
-  value: unknown,
-): NonNullable<AssistantAction["recurrence"]>["scheduledOccurrences"] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      return [];
-    }
-
-    const record = item as Record<string, unknown>;
-    const startTime = getNullableString(record.startTime);
-    const endTime = getNullableString(record.endTime);
-    const dateKey = getNullableString(record.dateKey);
-
-    if (!dateKey || !startTime || !endTime) {
-      return [];
-    }
-
-    return [
-      {
-        dateKey,
-        startTime,
-        endTime,
-        calendarEventId: getNullableString(record.calendarEventId),
-        sourceProposalId: getNullableString(record.sourceProposalId),
-      },
-    ];
-  });
 }
 
 function normalizeReflectionStrategySuggestion(
@@ -897,29 +714,6 @@ function nullableStringSchema() {
 function nullableNumberSchema() {
   return {
     type: ["number", "null"],
-  };
-}
-
-function nullableTaskRecurrenceSchema() {
-  return {
-    type: ["object", "null"],
-    additionalProperties: false,
-    required: ["frequency", "interval", "daysOfWeek", "endsAt", "sourceText"],
-    properties: {
-      frequency: {
-        type: "string",
-        enum: ["daily", "weekly", "monthly", "custom"],
-      },
-      interval: nullableNumberSchema(),
-      daysOfWeek: {
-        type: "array",
-        items: {
-          type: "number",
-        },
-      },
-      endsAt: nullableStringSchema(),
-      sourceText: nullableStringSchema(),
-    },
   };
 }
 

@@ -1,13 +1,13 @@
 import {
   addDays,
   differenceInCalendarDays,
+  differenceInMinutes,
   startOfDay,
 } from "date-fns";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  type LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -18,32 +18,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 
 import { useAuth } from "@/features/auth/AuthProvider";
-import {
-  canScrollProposalPreviewTimedGrid,
-  getProposalPreviewDayCount,
-  getProposalPreviewDayWidth,
-  getProposalPreviewEventsInRange,
-  getProposalPreviewGridWidth,
-  getProposalPreviewTimedViewportHeight,
-  getProposalPreviewTimeWindow,
-  getProposalPreviewTimedEventLayouts,
-  isProposalPreviewEventInDay,
-  PROPOSAL_PREVIEW_DAY_COLUMN_GAP as PREVIEW_DAY_COLUMN_GAP,
-  PROPOSAL_PREVIEW_HORIZONTAL_PADDING as PREVIEW_HORIZONTAL_PADDING,
-  PROPOSAL_PREVIEW_TIME_GUTTER_WIDTH as PREVIEW_TIME_GUTTER_WIDTH,
-  type ProposalPreviewTimedEventLayout,
-} from "@/features/assistant/layout/proposalPreviewLayout";
-import {
-  getRenderableScheduleProposals,
-  getScheduleProposalConflictNotice,
-  shouldRenderScheduleProposalMessageContent,
-} from "@/features/assistant/layout/scheduleProposalRendering";
 import { connectGoogleCalendar } from "@/features/auth/googleAuth";
 import { fetchScheduleEvents } from "@/features/schedule/api/scheduleApi";
-import { formatLocaleDate } from "@/features/shared/utils/dateTime";
+import {
+  formatLocaleDate,
+  formatLocaleDateTime,
+} from "@/features/shared/utils/dateTime";
 import type {
   AssistantMessage,
   AssistantTurnMode,
@@ -109,24 +91,12 @@ export default function AssistantHomeScreen() {
   );
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [proposalFeedbackDrafts, setProposalFeedbackDrafts] = useState<
+    Record<string, string>
+  >({});
   const [actedProposalIds, setActedProposalIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const messageScrollViewRef = useRef<ScrollView | null>(null);
-  const latestScheduleProposalsById = useMemo(
-    () => getLatestScheduleProposalsById(messages),
-    [messages],
-  );
-  const pendingScheduleProposal = useMemo(
-    () =>
-      getLatestDraftScheduleProposal(
-        messages,
-        actedProposalIds,
-        latestScheduleProposalsById,
-      ),
-    [actedProposalIds, latestScheduleProposalsById, messages],
-  );
-  const latestMessageId = messages.at(-1)?.id ?? null;
 
   const statusLabel = useMemo(() => {
     if (!isAuthenticated) {
@@ -190,22 +160,6 @@ export default function AssistantHomeScreen() {
       return;
     }
 
-    if (pendingScheduleProposal) {
-      setComposerValue("");
-      setComposerMode("chat");
-
-      const didSend = await handleProposalFeedback(
-        pendingScheduleProposal,
-        nextMessage,
-      );
-
-      if (!didSend) {
-        setComposerValue(nextMessage);
-      }
-
-      return;
-    }
-
     const nextMode = composerMode;
     setComposerValue("");
     setComposerMode("chat");
@@ -227,10 +181,6 @@ export default function AssistantHomeScreen() {
       getNextQuickActionComposerValue(currentValue, action),
     );
   }
-
-  useEffect(() => {
-    messageScrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [latestMessageId, pendingScheduleProposal?.id]);
 
   async function handleCreateThread() {
     if (isLoading || isSendingMessage) {
@@ -264,56 +214,37 @@ export default function AssistantHomeScreen() {
     await deleteThread(activeThread.id);
   }
 
-  async function handleProposalDecision(proposal: ScheduleProposal) {
-    if (isSendingMessage || actedProposalIds.has(proposal.id)) {
-      return;
-    }
-
-    setActedProposalIds((currentIds) => new Set(currentIds).add(proposal.id));
-
-    const didSend = await sendAssistantTurn({
-      message: `Confirm schedule proposal ${proposal.id}.`,
-      mode: "chat",
-    });
-
-    if (didSend) {
-      setComposerValue("");
-      return;
-    }
-
-    setActedProposalIds((currentIds) => {
-      const nextIds = new Set(currentIds);
-      nextIds.delete(proposal.id);
-      return nextIds;
-    });
-  }
-
-  async function handleProposalFeedback(
+  async function handleProposalDecision(
     proposal: ScheduleProposal,
-    feedbackValue: string,
+    decision: "accept" | "reject",
   ) {
     if (isSendingMessage || actedProposalIds.has(proposal.id)) {
-      return false;
+      return;
     }
 
-    const feedback = feedbackValue.trim();
-
-    if (!feedback) {
-      return false;
-    }
+    const feedback = proposalFeedbackDrafts[proposal.id]?.trim();
+    const decisionText =
+      decision === "accept"
+        ? `Confirm schedule proposal ${proposal.id}.`
+        : `Dismiss schedule proposal ${proposal.id}.`;
+    const message = feedback
+      ? `${decisionText} Feedback: ${feedback}`
+      : decisionText;
 
     setActedProposalIds((currentIds) => new Set(currentIds).add(proposal.id));
 
     const didSend = await sendAssistantTurn({
-      message: [
-        `For schedule proposal ${proposal.id}, please revise it based on this feedback:`,
-        feedback,
-      ].join(" "),
+      message,
       mode: "chat",
     });
 
     if (didSend) {
-      return true;
+      setProposalFeedbackDrafts((currentDrafts) => {
+        const nextDrafts = { ...currentDrafts };
+        delete nextDrafts[proposal.id];
+        return nextDrafts;
+      });
+      return;
     }
 
     setActedProposalIds((currentIds) => {
@@ -321,7 +252,6 @@ export default function AssistantHomeScreen() {
       nextIds.delete(proposal.id);
       return nextIds;
     });
-    return false;
   }
 
   return (
@@ -586,12 +516,7 @@ export default function AssistantHomeScreen() {
           ) : null}
 
           <ScrollView
-            ref={messageScrollViewRef}
-            testID="assistant-message-scroll"
             keyboardShouldPersistTaps="handled"
-            onContentSizeChange={() => {
-              messageScrollViewRef.current?.scrollToEnd({ animated: false });
-            }}
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingBottom: 16,
@@ -646,8 +571,19 @@ export default function AssistantHomeScreen() {
             {messages.map((message) => (
               <AssistantChatMessage
                 key={message.id}
-                latestScheduleProposalsById={latestScheduleProposalsById}
+                actedProposalIds={actedProposalIds}
+                feedbackDrafts={proposalFeedbackDrafts}
+                isSendingMessage={isSendingMessage}
                 message={message}
+                onChangeFeedback={(proposalId, value) => {
+                  setProposalFeedbackDrafts((currentDrafts) => ({
+                    ...currentDrafts,
+                    [proposalId]: value,
+                  }));
+                }}
+                onProposalDecision={(proposal, decision) => {
+                  void handleProposalDecision(proposal, decision);
+                }}
               />
             ))}
 
@@ -678,17 +614,6 @@ export default function AssistantHomeScreen() {
             ) : null}
           </ScrollView>
 
-          {pendingScheduleProposal ? (
-            <ProposalActionPrompt
-              hasActed={actedProposalIds.has(pendingScheduleProposal.id)}
-              isSendingMessage={isSendingMessage}
-              onImplement={() => {
-                void handleProposalDecision(pendingScheduleProposal);
-              }}
-              proposal={pendingScheduleProposal}
-            />
-          ) : null}
-
           <View
             style={{
               borderRadius: 24,
@@ -712,15 +637,13 @@ export default function AssistantHomeScreen() {
                   fontWeight: "700",
                 }}
               >
-                {pendingScheduleProposal
-                  ? "Need a change? Tell Productiv below"
-                  : composerMode === "work_log"
-                    ? "Work log extraction is on"
-                    : composerMode === "schedule_reflection"
-                      ? "Schedule reflection is on"
-                    : "Chat mode is on"}
+                {composerMode === "work_log"
+                  ? "Work log extraction is on"
+                  : composerMode === "schedule_reflection"
+                    ? "Schedule reflection is on"
+                  : "Chat mode is on"}
               </Text>
-              {!pendingScheduleProposal && composerMode !== "chat" ? (
+              {composerMode !== "chat" ? (
                 <Pressable
                   onPress={() => setComposerMode("chat")}
                   style={{
@@ -742,44 +665,42 @@ export default function AssistantHomeScreen() {
               ) : null}
             </View>
 
-            {!pendingScheduleProposal ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{
-                  gap: 8,
-                  paddingRight: 2,
-                }}
-              >
-                {QUICK_ACTIONS.map((action) => {
-                  const isSelected =
-                    composerMode === action.mode &&
-                    composerValue.startsWith(action.prompt);
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                gap: 8,
+                paddingRight: 2,
+              }}
+            >
+              {QUICK_ACTIONS.map((action) => {
+                const isSelected =
+                  composerMode === action.mode &&
+                  composerValue.startsWith(action.prompt);
 
-                  return (
-                    <Pressable
-                      key={action.label}
-                      onPress={() => handleQuickAction(action)}
+                return (
+                  <Pressable
+                    key={action.label}
+                    onPress={() => handleQuickAction(action)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 9,
+                      borderRadius: 14,
+                      backgroundColor: isSelected ? "#123a35" : "#efe9dd",
+                    }}
+                  >
+                    <Text
                       style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 9,
-                        borderRadius: 14,
-                        backgroundColor: isSelected ? "#123a35" : "#efe9dd",
+                        fontWeight: "700",
+                        color: isSelected ? "#f4f0e8" : "#31413c",
                       }}
                     >
-                      <Text
-                        style={{
-                          fontWeight: "700",
-                          color: isSelected ? "#f4f0e8" : "#31413c",
-                        }}
-                      >
-                        {action.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            ) : null}
+                      {action.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
             <TextInput
               value={composerValue}
@@ -787,13 +708,11 @@ export default function AssistantHomeScreen() {
               editable={isAuthenticated && !isSendingMessage}
               multiline
               placeholder={
-                pendingScheduleProposal
-                  ? "Move Friday study later, make mornings lighter..."
-                  : composerMode === "work_log"
-                    ? "Log what you worked on and include the amount if you want progress extracted..."
-                    : composerMode === "schedule_reflection"
-                      ? "What worked, what didn't, and what got in the way?"
-                    : "Message Productiv..."
+                composerMode === "work_log"
+                  ? "Log what you worked on and include the amount if you want progress extracted..."
+                  : composerMode === "schedule_reflection"
+                    ? "What worked, what didn't, and what got in the way?"
+                  : "Message Productiv..."
               }
               placeholderTextColor="#88938f"
               style={{
@@ -829,28 +748,15 @@ export default function AssistantHomeScreen() {
                     : "#123a35",
               }}
             >
-              <View
+              <Text
                 style={{
-                  alignItems: "center",
-                  flexDirection: "row",
-                  gap: 8,
+                  color: "#f4f0e8",
+                  fontWeight: "700",
+                  fontSize: 15,
                 }}
               >
-                <Ionicons
-                  name="send"
-                  size={16}
-                  color="#f4f0e8"
-                />
-                <Text
-                  style={{
-                    color: "#f4f0e8",
-                    fontWeight: "700",
-                    fontSize: 15,
-                  }}
-                >
-                  {pendingScheduleProposal ? "Send feedback" : "Send"}
-                </Text>
-              </View>
+                Send
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -888,37 +794,24 @@ function formatThreadUpdatedAt(value: string) {
 }
 
 function AssistantChatMessage({
-  latestScheduleProposalsById,
+  actedProposalIds,
+  feedbackDrafts,
+  isSendingMessage,
   message,
+  onChangeFeedback,
+  onProposalDecision,
 }: {
-  latestScheduleProposalsById: Map<string, ScheduleProposal>;
+  actedProposalIds: Set<string>;
+  feedbackDrafts: Record<string, string>;
+  isSendingMessage: boolean;
   message: AssistantMessage;
+  onChangeFeedback: (proposalId: string, value: string) => void;
+  onProposalDecision: (
+    proposal: ScheduleProposal,
+    decision: "accept" | "reject",
+  ) => void;
 }) {
-  const scheduleProposals = getMessageScheduleProposals(
-    message,
-    latestScheduleProposalsById,
-  );
-  const shouldRenderMessageContent = shouldRenderScheduleProposalMessageContent({
-    role: message.role,
-    scheduleProposalCount: scheduleProposals.length,
-  });
-
-  if (!shouldRenderMessageContent) {
-    return (
-      <View
-        style={{
-          alignSelf: "flex-start",
-          maxWidth: "100%",
-          width: "100%",
-          gap: 14,
-        }}
-      >
-        {scheduleProposals.map((proposal) => (
-          <ScheduleProposalCard key={proposal.id} proposal={proposal} />
-        ))}
-      </View>
-    );
-  }
+  const scheduleProposals = getMessageScheduleProposals(message);
 
   return (
     <View
@@ -960,16 +853,36 @@ function AssistantChatMessage({
       </View>
 
       {scheduleProposals.map((proposal) => (
-        <ScheduleProposalCard key={proposal.id} proposal={proposal} />
+        <ScheduleProposalCard
+          key={proposal.id}
+          feedbackValue={feedbackDrafts[proposal.id] ?? ""}
+          hasActed={actedProposalIds.has(proposal.id)}
+          isSendingMessage={isSendingMessage}
+          onChangeFeedback={(value) => onChangeFeedback(proposal.id, value)}
+          onDecision={(decision) => onProposalDecision(proposal, decision)}
+          proposal={proposal}
+        />
       ))}
     </View>
   );
 }
 
-function ScheduleProposalCard({ proposal }: { proposal: ScheduleProposal }) {
-  const conflictNotice = getScheduleProposalConflictNotice({
-    conflictAnnotations: proposal.conflictAnnotations,
-  });
+function ScheduleProposalCard({
+  feedbackValue,
+  hasActed,
+  isSendingMessage,
+  onChangeFeedback,
+  onDecision,
+  proposal,
+}: {
+  feedbackValue: string;
+  hasActed: boolean;
+  isSendingMessage: boolean;
+  onChangeFeedback: (value: string) => void;
+  onDecision: (decision: "accept" | "reject") => void;
+  proposal: ScheduleProposal;
+}) {
+  const canAct = proposal.status === "draft" && !hasActed && !isSendingMessage;
 
   return (
     <View
@@ -983,29 +896,39 @@ function ScheduleProposalCard({ proposal }: { proposal: ScheduleProposal }) {
     >
       <View
         style={{
-          paddingHorizontal: 12,
-          paddingVertical: 10,
+          paddingHorizontal: 14,
+          paddingTop: 14,
+          paddingBottom: 10,
+          gap: 8,
         }}
       >
         <View
           style={{
             flexDirection: "row",
-            alignItems: "center",
+            alignItems: "flex-start",
             justifyContent: "space-between",
             gap: 10,
           }}
         >
-          <Text
-            numberOfLines={1}
-            style={{
-              color: "#132521",
-              flex: 1,
-              fontSize: 16,
-              fontWeight: "800",
-            }}
-          >
-            {getProposalCardTitle(proposal)}
-          </Text>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text
+              style={{
+                color: "#132521",
+                fontSize: 16,
+                fontWeight: "800",
+              }}
+            >
+              {proposal.title}
+            </Text>
+            <Text
+              style={{
+                color: "#5a6762",
+                lineHeight: 20,
+              }}
+            >
+              {proposal.summary}
+            </Text>
+          </View>
           <View
             style={{
               borderRadius: 999,
@@ -1026,136 +949,163 @@ function ScheduleProposalCard({ proposal }: { proposal: ScheduleProposal }) {
             </Text>
           </View>
         </View>
-        {conflictNotice ? (
-          <View
-            style={{
-              alignItems: "flex-start",
-              backgroundColor: "#fff4d0",
-              borderColor: "#e2bc56",
-              borderRadius: 12,
-              borderWidth: 1,
-              flexDirection: "row",
-              gap: 8,
-              marginTop: 10,
-              paddingHorizontal: 10,
-              paddingVertical: 8,
-            }}
-          >
-            <Ionicons name="warning" size={15} color="#805d08" />
-            <Text
-              numberOfLines={2}
-              style={{
-                color: "#59420a",
-                flex: 1,
-                fontSize: 12,
-                fontWeight: "800",
-                lineHeight: 16,
-              }}
-            >
-              {conflictNotice}
-            </Text>
-          </View>
-        ) : null}
       </View>
 
       <ScheduleProposalWeekPreview proposal={proposal} />
-    </View>
-  );
-}
 
-function ProposalActionPrompt({
-  hasActed,
-  isSendingMessage,
-  onImplement,
-  proposal,
-}: {
-  hasActed: boolean;
-  isSendingMessage: boolean;
-  onImplement: () => void;
-  proposal: ScheduleProposal;
-}) {
-  const { width } = useWindowDimensions();
-  const canAct = proposal.status === "draft" && !hasActed && !isSendingMessage;
-  const heading = getProposalActionHeading(proposal);
-  const subtitle = getProposalActionSubtitle(proposal);
-  const shouldStack = width < 430;
-
-  return (
-    <View
-      testID="proposal-action-prompt"
-      style={{
-        borderRadius: 22,
-        backgroundColor: "#123a35",
-        padding: 14,
-        gap: 12,
-      }}
-    >
-      <View
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
         style={{
-          flexDirection: shouldStack ? "column" : "row",
-          alignItems: shouldStack ? "stretch" : "center",
-          justifyContent: "space-between",
+          maxHeight: 300,
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
+          borderColor: "#ddd3c3",
+        }}
+        contentContainerStyle={{
+          padding: 14,
           gap: 12,
         }}
       >
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text
+        {proposal.operations.map((operation, index) => (
+          <View
+            key={getProposalOperationKey(proposal.id, operation, index)}
             style={{
-              color: "#f4f0e8",
-              fontSize: 15,
-              fontWeight: "800",
+              borderRadius: 14,
+              backgroundColor: "#fffaf2",
+              padding: 12,
+              gap: 8,
             }}
-            numberOfLines={1}
           >
-            {heading}
-          </Text>
-          <Text
+            <Text
+              style={{
+                color: "#132521",
+                fontWeight: "800",
+              }}
+            >
+              {operation.title}
+            </Text>
+            <ProposalDetailRow
+              label="Type"
+              value={operation.type === "schedule_task" ? "Task" : "Goal focus"}
+            />
+            {operation.description ? (
+              <Text
+                style={{
+                  color: "#5a6762",
+                  lineHeight: 20,
+                }}
+              >
+                {operation.description}
+              </Text>
+            ) : null}
+            <ProposalDetailRow label="Starts" value={formatProposalDateTime(operation.startTime)} />
+            <ProposalDetailRow label="Ends" value={formatProposalDateTime(operation.endTime)} />
+          </View>
+        ))}
+
+        {proposal.conflictAnnotations.length > 0 ? (
+          <View
             style={{
-              color: "#bfd1ca",
-              fontSize: 12,
-              fontWeight: "700",
-              lineHeight: 16,
+              borderRadius: 14,
+              backgroundColor: "#fbe9e6",
+              padding: 12,
+              gap: 8,
             }}
-            numberOfLines={2}
           >
-            {subtitle}
-          </Text>
-        </View>
-        <Pressable
-          accessibilityLabel="Implement proposed schedule"
-          accessibilityRole="button"
-          onPress={onImplement}
-          disabled={!canAct}
+            <Text
+              style={{
+                color: "#7f2d24",
+                fontWeight: "800",
+              }}
+            >
+              Conflicts to review
+            </Text>
+            {proposal.conflictAnnotations.map((conflict, index) => (
+              <View key={`${proposal.id}-conflict-${index}`} style={{ gap: 2 }}>
+                <Text
+                  style={{
+                    color: "#7f2d24",
+                    fontWeight: "700",
+                  }}
+                >
+                  {conflict.title}
+                </Text>
+                <Text
+                  style={{
+                    color: "#7f2d24",
+                    lineHeight: 19,
+                  }}
+                >
+                  {conflict.detail}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View
+            style={{
+              borderRadius: 14,
+              backgroundColor: "#d7e7e1",
+              padding: 12,
+            }}
+          >
+            <Text
+              style={{
+                color: "#123a35",
+                fontWeight: "700",
+              }}
+            >
+              No saved scheduling conflicts found.
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+
+      <View
+        style={{
+          padding: 14,
+          gap: 10,
+        }}
+      >
+        <TextInput
+          value={feedbackValue}
+          onChangeText={onChangeFeedback}
+          editable={canAct}
+          multiline
+          placeholder="Add feedback before accepting or rejecting..."
+          placeholderTextColor="#88938f"
           style={{
-            alignItems: "center",
-            borderRadius: 16,
-            backgroundColor: canAct ? "#f0c15d" : "#809891",
+            minHeight: 72,
+            borderRadius: 14,
+            backgroundColor: "#fffaf2",
+            borderWidth: 1,
+            borderColor: "#ddd3c3",
+            color: "#162a26",
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            textAlignVertical: "top",
+          }}
+        />
+        <View
+          style={{
             flexDirection: "row",
-            flexShrink: 0,
-            gap: 6,
-            justifyContent: "center",
-            minWidth: 142,
-            paddingHorizontal: 14,
-            paddingVertical: 12,
-            width: shouldStack ? "100%" : undefined,
+            gap: 10,
           }}
         >
-          <Ionicons
-            name={hasActed ? "checkmark-done" : "checkmark"}
-            size={17}
-            color="#123a35"
+          <ProposalDecisionButton
+            disabled={!canAct}
+            label={hasActed ? "Sent" : "Accept"}
+            onPress={() => onDecision("accept")}
+            variant="accept"
           />
-          <Text
-            numberOfLines={1}
-            style={{
-              color: "#123a35",
-              fontWeight: "800",
-              textAlign: "center",
-            }}
-          >
-            {hasActed ? "Sent" : "Yes, implement"}
-          </Text>
-        </Pressable>
+          <ProposalDecisionButton
+            disabled={!canAct}
+            label="Reject"
+            onPress={() => onDecision("reject")}
+            variant="reject"
+          />
+        </View>
       </View>
     </View>
   );
@@ -1171,7 +1121,13 @@ type ProposalPreviewEvent = {
   calendarName?: string;
 };
 
-const PREVIEW_HOUR_HEIGHT = 46;
+const PREVIEW_START_HOUR = 6;
+const PREVIEW_END_HOUR = 22;
+const PREVIEW_HOUR_HEIGHT = 24;
+const PREVIEW_MIN_DAY_WIDTH = 112;
+const PREVIEW_MAX_DAY_WIDTH = 168;
+const PREVIEW_TIMED_HEIGHT =
+  (PREVIEW_END_HOUR - PREVIEW_START_HOUR) * PREVIEW_HOUR_HEIGHT;
 
 function ScheduleProposalWeekPreview({
   proposal,
@@ -1180,7 +1136,6 @@ function ScheduleProposalWeekPreview({
 }) {
   const { isAuthenticated, sessionToken } = useAuth();
   const { width: viewportWidth } = useWindowDimensions();
-  const [previewWidth, setPreviewWidth] = useState(0);
   const range = useMemo(() => getProposalPreviewRange(proposal), [proposal]);
   const rangeKey = range
     ? `${range.startDate.toISOString()}:${range.endDate.toISOString()}`
@@ -1190,9 +1145,6 @@ function ScheduleProposalWeekPreview({
   );
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewStartDayIndex, setPreviewStartDayIndex] = useState(0);
-  const measuredPreviewWidth = previewWidth > 0 ? previewWidth : viewportWidth;
-  const visibleDayCount = getProposalPreviewDayCount(measuredPreviewWidth);
 
   useEffect(() => {
     if (!range || !isAuthenticated) {
@@ -1247,10 +1199,6 @@ function ScheduleProposalWeekPreview({
     [proposal],
   );
 
-  useEffect(() => {
-    setPreviewStartDayIndex(0);
-  }, [rangeKey, visibleDayCount]);
-
   if (!range) {
     return null;
   }
@@ -1259,59 +1207,12 @@ function ScheduleProposalWeekPreview({
     addDays(range.startDate, index),
   );
   const previewEvents = [...calendarEvents, ...proposalEvents];
-  const renderedDayCount = Math.min(days.length, visibleDayCount);
-  const maxPreviewStartDayIndex = Math.max(0, days.length - renderedDayCount);
-  const currentPreviewStartDayIndex = Math.min(
-    previewStartDayIndex,
-    maxPreviewStartDayIndex,
-  );
-  const visibleDays = days.slice(
-    currentPreviewStartDayIndex,
-    currentPreviewStartDayIndex + renderedDayCount,
-  );
-  const visibleRangeStartDate = visibleDays[0] ?? range.startDate;
-  const visibleRangeEndDate = visibleDays.at(-1) ?? range.endDate;
-  const visiblePreviewEvents = getProposalPreviewEventsInRange(
-    previewEvents,
-    visibleRangeStartDate,
-    renderedDayCount,
-  );
-  const allDayEvents = visiblePreviewEvents.filter((event) => event.allDay);
-  const timedEvents = visiblePreviewEvents.filter((event) => !event.allDay);
-  const timeWindow = getProposalPreviewTimeWindow(timedEvents);
-  const canPagePreviewDays = days.length > renderedDayCount;
-  const dayWidth = getProposalPreviewDayWidth(
-    measuredPreviewWidth,
-    renderedDayCount,
-  );
-  const previewGridWidth = getProposalPreviewGridWidth(
-    dayWidth,
-    renderedDayCount,
-  );
-  const canScrollPreviewGrid = previewGridWidth > measuredPreviewWidth + 1;
-  const timedHeight =
-    (timeWindow.endHour - timeWindow.startHour) * PREVIEW_HOUR_HEIGHT;
-  const timedViewportHeight = getProposalPreviewTimedViewportHeight(
-    timedHeight,
-    renderedDayCount,
-  );
-  const canScrollTimedGrid = canScrollProposalPreviewTimedGrid(
-    timedHeight,
-    renderedDayCount,
-  );
-
-  function handlePreviewLayout(event: LayoutChangeEvent) {
-    const nextWidth = event.nativeEvent.layout.width;
-
-    setPreviewWidth((currentWidth) =>
-      Math.abs(currentWidth - nextWidth) > 1 ? nextWidth : currentWidth,
-    );
-  }
+  const allDayEvents = previewEvents.filter((event) => event.allDay);
+  const timedEvents = previewEvents.filter((event) => !event.allDay);
+  const dayWidth = getPreviewDayWidth(viewportWidth, days.length);
 
   return (
     <View
-      testID="schedule-proposal-preview"
-      onLayout={handlePreviewLayout}
       style={{
         borderTopWidth: 1,
         borderColor: "#ddd3c3",
@@ -1324,90 +1225,28 @@ function ScheduleProposalWeekPreview({
         style={{
           paddingHorizontal: 14,
           flexDirection: "row",
-          alignItems: "flex-start",
+          alignItems: "center",
           justifyContent: "space-between",
-          flexWrap: "wrap",
           gap: 12,
         }}
       >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            numberOfLines={1}
-            style={{
-              color: "#132521",
-              fontWeight: "800",
-            }}
-          >
-            {formatPreviewRange(visibleRangeStartDate, visibleRangeEndDate)}
-          </Text>
-          {canPagePreviewDays ? (
-            <Text
-              style={{
-                color: "#68736f",
-                fontSize: 11,
-                fontWeight: "700",
-                marginTop: 2,
-              }}
-            >
-              {currentPreviewStartDayIndex + 1}-
-              {currentPreviewStartDayIndex + visibleDays.length} of{" "}
-              {days.length} days
-            </Text>
-          ) : null}
-        </View>
-        {canPagePreviewDays ? (
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <PreviewDayNavButton
-              direction="previous"
-              disabled={currentPreviewStartDayIndex === 0}
-              onPress={() => {
-                setPreviewStartDayIndex((index) =>
-                  Math.max(0, index - renderedDayCount),
-                );
-              }}
-            />
-            <PreviewDayNavButton
-              direction="next"
-              disabled={
-                currentPreviewStartDayIndex >= maxPreviewStartDayIndex
-              }
-              onPress={() => {
-                setPreviewStartDayIndex((index) =>
-                  Math.min(
-                    maxPreviewStartDayIndex,
-                    index + renderedDayCount,
-                  ),
-                );
-              }}
-            />
-          </View>
-        ) : null}
-        <View
+        <Text
           style={{
-            alignItems: "center",
-            borderRadius: 999,
-            backgroundColor: "#e7efe9",
-            paddingHorizontal: 9,
-            paddingVertical: 6,
+            color: "#132521",
+            fontWeight: "800",
           }}
         >
-          <Text
-            numberOfLines={1}
-            style={{
-              color: "#31413c",
-              fontSize: 11,
-              fontWeight: "800",
-            }}
-          >
-            {isLoadingPreview ? "Loading" : `${proposalEvents.length} proposed`}
-          </Text>
-        </View>
+          Calendar preview
+        </Text>
+        <Text
+          style={{
+            color: "#68736f",
+            fontSize: 12,
+            fontWeight: "700",
+          }}
+        >
+          {isLoadingPreview ? "Loading" : `${proposalEvents.length} proposed`}
+        </Text>
       </View>
 
       {previewError ? (
@@ -1428,7 +1267,7 @@ function ScheduleProposalWeekPreview({
           nestedScrollEnabled
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{
-            paddingHorizontal: PREVIEW_HORIZONTAL_PADDING,
+            paddingHorizontal: 14,
             gap: 8,
           }}
         >
@@ -1462,404 +1301,223 @@ function ScheduleProposalWeekPreview({
       ) : null}
 
       <ScrollView
+        horizontal
         nestedScrollEnabled
-        scrollEnabled={canScrollTimedGrid}
-        showsVerticalScrollIndicator={canScrollTimedGrid}
-        style={{
-          maxHeight: timedViewportHeight,
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: 14,
         }}
       >
-        <ScrollView
-          horizontal
-          nestedScrollEnabled
-          scrollEnabled={canScrollPreviewGrid}
-          showsHorizontalScrollIndicator={canScrollPreviewGrid}
-          contentContainerStyle={{
-            paddingHorizontal: PREVIEW_HORIZONTAL_PADDING,
-          }}
-        >
-          <View>
-            <View style={{ flexDirection: "row" }}>
+        <View>
+          <View style={{ flexDirection: "row" }}>
+            {days.map((day) => (
               <View
+                key={day.toISOString()}
                 style={{
-                  width: PREVIEW_TIME_GUTTER_WIDTH,
+                  width: dayWidth,
                   paddingBottom: 8,
-                }}
-              />
-              {visibleDays.map((day) => (
-                <View
-                  key={day.toISOString()}
-                  style={{
-                    width: dayWidth,
-                    marginRight: PREVIEW_DAY_COLUMN_GAP,
-                    paddingBottom: 8,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: "#132521",
-                      fontSize: 12,
-                      fontWeight: "800",
-                    }}
-                  >
-                    {formatPreviewDay(day)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            <View
-              style={{
-                flexDirection: "row",
-                height: timedHeight,
-              }}
-            >
-              <View
-                style={{
-                  width: PREVIEW_TIME_GUTTER_WIDTH,
-                  height: timedHeight,
+                  paddingRight: 8,
                 }}
               >
-                {Array.from(
-                  { length: timeWindow.endHour - timeWindow.startHour + 1 },
-                  (_, index) => timeWindow.startHour + index,
-                ).map((hour) => (
-                  <Text
-                    key={hour}
-                    style={{
-                      color: "#7a8580",
-                      fontSize: 10,
-                      fontWeight: "700",
-                      position: "absolute",
-                      top: Math.max(
-                        0,
-                        (hour - timeWindow.startHour) * PREVIEW_HOUR_HEIGHT - 7,
-                      ),
-                    }}
-                  >
-                    {formatPreviewHour(hour)}
-                  </Text>
-                ))}
-              </View>
-              {visibleDays.map((day) => (
-                <View
-                  key={`${day.toISOString()}-body`}
+                <Text
                   style={{
-                    width: dayWidth,
-                    marginRight: PREVIEW_DAY_COLUMN_GAP,
-                    height: timedHeight,
-                    borderLeftWidth: 1,
-                    borderColor: "#e8ded0",
+                    color: "#132521",
+                    fontSize: 12,
+                    fontWeight: "800",
                   }}
                 >
-                  {getProposalPreviewTimedEventLayouts(
-                    timedEvents.filter((event) =>
-                      isProposalPreviewEventInDay(event, day),
-                    ),
-                    day,
-                    timeWindow,
-                    PREVIEW_HOUR_HEIGHT,
-                  ).map((layout) => (
+                  {formatPreviewDay(day)}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              height: PREVIEW_TIMED_HEIGHT,
+            }}
+          >
+            {days.map((day) => (
+              <View
+                key={`${day.toISOString()}-body`}
+                style={{
+                  width: dayWidth,
+                  height: PREVIEW_TIMED_HEIGHT,
+                  borderLeftWidth: 1,
+                  borderColor: "#e8ded0",
+                  paddingRight: 8,
+                }}
+              >
+                {timedEvents
+                  .filter(
+                    (event) =>
+                      differenceInCalendarDays(
+                        startOfDay(event.startTime),
+                        day,
+                      ) === 0,
+                  )
+                  .map((event) => (
                     <PreviewEventBlock
-                      key={`${layout.event.id}:${day.toISOString()}`}
-                      dayWidth={dayWidth}
-                      layout={layout}
+                      key={event.id}
+                      event={event}
                     />
                   ))}
-                </View>
-              ))}
-            </View>
+              </View>
+            ))}
           </View>
-        </ScrollView>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
-function PreviewDayNavButton({
-  direction,
-  disabled,
-  onPress,
-}: {
-  direction: "next" | "previous";
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityLabel={
-        direction === "previous"
-          ? "Previous proposal days"
-          : "Next proposal days"
-      }
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={{
-        width: 30,
-        height: 30,
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 15,
-        backgroundColor: disabled ? "#efe9dd" : "#d7e7e1",
-        opacity: disabled ? 0.55 : 1,
-      }}
-    >
-      <Ionicons
-        name={direction === "previous" ? "chevron-back" : "chevron-forward"}
-        size={17}
-        color="#123a35"
-      />
-    </Pressable>
+function PreviewEventBlock({ event }: { event: ProposalPreviewEvent }) {
+  const dayStart = startOfDay(event.startTime);
+  const previewStart = new Date(dayStart);
+  previewStart.setHours(PREVIEW_START_HOUR, 0, 0, 0);
+  const previewEnd = new Date(dayStart);
+  previewEnd.setHours(PREVIEW_END_HOUR, 0, 0, 0);
+  const visibleStart = new Date(
+    Math.max(event.startTime.getTime(), previewStart.getTime()),
   );
-}
+  const visibleEnd = new Date(
+    Math.min(event.endTime.getTime(), previewEnd.getTime()),
+  );
 
-function PreviewEventBlock({
-  dayWidth,
-  layout,
-}: {
-  dayWidth: number;
-  layout: ProposalPreviewTimedEventLayout<ProposalPreviewEvent>;
-}) {
-  const event = layout.event;
-  const isCompact = layout.visibleMinutes < 45 || layout.laneCount > 1;
+  if (visibleEnd <= visibleStart) {
+    return null;
+  }
+
+  const top = Math.max(0, differenceInMinutes(visibleStart, previewStart)) *
+    (PREVIEW_HOUR_HEIGHT / 60);
+  const height = Math.max(
+    18,
+    differenceInMinutes(visibleEnd, visibleStart) *
+      (PREVIEW_HOUR_HEIGHT / 60),
+  );
   const isProposal = event.source === "proposal";
-  const laneAvailableWidth = Math.max(1, dayWidth);
-  const laneWidth = laneAvailableWidth / layout.laneCount;
-  const laneLeft = laneWidth * layout.laneIndex;
 
   return (
     <View
       style={{
         position: "absolute",
-        left: laneLeft,
-        width: laneWidth,
-        top: layout.top,
-        height: layout.height,
-        paddingLeft: layout.laneIndex === 0 ? 4 : 2,
-        paddingRight: layout.laneIndex === layout.laneCount - 1 ? 10 : 2,
+        left: 4,
+        right: 10,
+        top,
+        height,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: isProposal ? "#d29d12" : "#aebbb5",
+        backgroundColor: isProposal ? "#fde7a1" : "#e8efec",
+        paddingHorizontal: 6,
+        paddingVertical: 4,
+        overflow: "hidden",
       }}
     >
-      <View
+      <Text
+        numberOfLines={2}
         style={{
-          flex: 1,
-          borderRadius: 8,
-          borderWidth: 1,
-          borderColor: isProposal ? "#d29d12" : "#aebbb5",
-          backgroundColor: isProposal ? "#fde7a1" : "#e8efec",
-          paddingHorizontal: 6,
-          paddingVertical: isCompact ? 4 : 5,
-          overflow: "hidden",
+          color: "#132521",
+          fontSize: 11,
+          fontWeight: "800",
         }}
       >
-        {isCompact ? (
-          <Text
-            numberOfLines={1}
-            style={{
-              color: "#132521",
-              fontSize: 10,
-              fontWeight: "800",
-              lineHeight: 12,
-            }}
-          >
-            {formatPreviewEventTime(event)} {event.title}
-          </Text>
-        ) : (
-          <>
-            <Text
-              numberOfLines={1}
-              style={{
-                color: "#586660",
-                fontSize: 9,
-                fontWeight: "800",
-                lineHeight: 10,
-              }}
-            >
-              {formatPreviewEventTime(event)}
-            </Text>
-            <Text
-              numberOfLines={1}
-              style={{
-                color: "#132521",
-                fontSize: 11,
-                fontWeight: "800",
-                lineHeight: 13,
-              }}
-            >
-              {event.title}
-            </Text>
-          </>
-        )}
-      </View>
+        {event.title}
+      </Text>
     </View>
   );
 }
 
-function getMessageScheduleProposals(
-  message: AssistantMessage,
-  latestScheduleProposalsById?: Map<string, ScheduleProposal>,
-) {
+function ProposalDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        gap: 12,
+      }}
+    >
+      <Text
+        style={{
+          color: "#65716d",
+          fontWeight: "700",
+        }}
+      >
+        {label}
+      </Text>
+      <Text
+        style={{
+          color: "#162a26",
+          flex: 1,
+          textAlign: "right",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function ProposalDecisionButton({
+  disabled,
+  label,
+  onPress,
+  variant,
+}: {
+  disabled: boolean;
+  label: string;
+  onPress: () => void;
+  variant: "accept" | "reject";
+}) {
+  const activeColor = variant === "accept" ? "#123a35" : "#7f2d24";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={{
+        flex: 1,
+        borderRadius: 14,
+        alignItems: "center",
+        paddingHorizontal: 12,
+        paddingVertical: 13,
+        backgroundColor: disabled ? "#cdd6d2" : activeColor,
+      }}
+    >
+      <Text
+        style={{
+          color: "#f4f0e8",
+          fontWeight: "800",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function getMessageScheduleProposals(message: AssistantMessage) {
   if (message.role !== "assistant") {
     return [];
   }
 
-  const proposalsById = getRawMessageScheduleProposalsById(message);
-  return getRenderableScheduleProposals(
-    Array.from(proposalsById.values()),
-    latestScheduleProposalsById,
-  );
-}
-
-function getRawMessageScheduleProposalsById(message: AssistantMessage) {
-  const proposalsById = new Map<string, ScheduleProposal>();
-
-  if (message.role !== "assistant") {
-    return proposalsById;
-  }
-
   const payload = message.structuredPayload;
-  getScheduleProposalArray(payload.scheduleProposals).forEach((proposal) => {
-    proposalsById.set(proposal.id, proposal);
-  });
-
-  if (
+  const directProposals = getScheduleProposalArray(payload.scheduleProposals);
+  const sideEffectProposals =
     payload.sideEffects &&
     typeof payload.sideEffects === "object" &&
     !Array.isArray(payload.sideEffects)
-  ) {
-    getScheduleProposalArray(
-      (payload.sideEffects as Record<string, unknown>).scheduleProposals,
-    ).forEach((proposal) => {
-      proposalsById.set(proposal.id, proposal);
-    });
-  }
-
-  return proposalsById;
-}
-
-function getProposalActionHeading(proposal: ScheduleProposal) {
-  const blockCount = proposal.operations.length;
-
-  if (blockCount === 0) {
-    return "Ready to schedule?";
-  }
-
-  return `Ready to schedule ${blockCount} block${blockCount === 1 ? "" : "s"}?`;
-}
-
-function getProposalCardTitle(proposal: ScheduleProposal) {
-  if (proposal.status === "applied" || proposal.status === "confirmed") {
-    return "Schedule implemented";
-  }
-
-  return "Proposed schedule";
-}
-
-function getProposalActionSubtitle(proposal: ScheduleProposal) {
-  const titleSummary = getProposalOperationTitleSummary(proposal);
-  const dateSummary = getProposalOperationDateSummary(proposal);
-
-  if (titleSummary && dateSummary) {
-    return `${titleSummary} • ${dateSummary}`;
-  }
-
-  return titleSummary || dateSummary || proposal.title;
-}
-
-function getProposalOperationTitleSummary(proposal: ScheduleProposal) {
-  const titles = [
-    ...new Set(
-      proposal.operations
-        .map((operation) => operation.title.trim())
-        .filter((title) => title.length > 0),
-    ),
-  ];
-
-  if (titles.length === 0) {
-    return "";
-  }
-
-  if (titles.length === 1) {
-    return titles[0] ?? "";
-  }
-
-  if (titles.length === 2) {
-    return `${titles[0]} + ${titles[1]}`;
-  }
-
-  return `${titles[0]} + ${titles.length - 1} more`;
-}
-
-function getProposalOperationDateSummary(proposal: ScheduleProposal) {
-  const startTimes = proposal.operations
-    .map((operation) => new Date(operation.startTime))
-    .filter((date) => Number.isFinite(date.getTime()))
-    .sort((left, right) => left.getTime() - right.getTime());
-  const firstStartTime = startTimes[0];
-  const lastStartTime = startTimes.at(-1);
-
-  if (!firstStartTime || !lastStartTime) {
-    return "";
-  }
-
-  const firstLabel = formatProposalDateLabel(firstStartTime);
-  const lastLabel = formatProposalDateLabel(lastStartTime);
-
-  return firstLabel === lastLabel ? firstLabel : `${firstLabel}-${lastLabel}`;
-}
-
-function formatProposalDateLabel(date: Date) {
-  return formatLocaleDate(date, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function getLatestScheduleProposalsById(messages: AssistantMessage[]) {
+      ? getScheduleProposalArray(
+          (payload.sideEffects as Record<string, unknown>).scheduleProposals,
+        )
+      : [];
   const proposalsById = new Map<string, ScheduleProposal>();
 
-  for (const message of messages) {
-    getRawMessageScheduleProposalsById(message).forEach((proposal) => {
-      proposalsById.set(proposal.id, proposal);
-    });
-  }
+  [...directProposals, ...sideEffectProposals].forEach((proposal) => {
+    proposalsById.set(proposal.id, proposal);
+  });
 
-  return proposalsById;
-}
-
-function getLatestDraftScheduleProposal(
-  messages: AssistantMessage[],
-  actedProposalIds: Set<string>,
-  latestScheduleProposalsById: Map<string, ScheduleProposal>,
-) {
-  for (
-    let messageIndex = messages.length - 1;
-    messageIndex >= 0;
-    messageIndex -= 1
-  ) {
-    const message = messages[messageIndex];
-
-    if (!message) {
-      continue;
-    }
-
-    const proposal = getMessageScheduleProposals(
-      message,
-      latestScheduleProposalsById,
-    )
-      .slice()
-      .reverse()
-      .find(
-        (candidate) =>
-          candidate.status === "draft" && !actedProposalIds.has(candidate.id),
-      );
-
-    if (proposal) {
-      return proposal;
-    }
-  }
-
-  return null;
+  return Array.from(proposalsById.values());
 }
 
 function getScheduleProposalArray(value: unknown): ScheduleProposal[] {
@@ -1972,6 +1630,19 @@ function normalizeProposalOperations(value: unknown): ScheduleProposal["operatio
     : [];
 }
 
+function getProposalOperationKey(
+  proposalId: string,
+  operation: ScheduleProposal["operations"][number],
+  index: number,
+) {
+  const recordId =
+    operation.type === "schedule_task"
+      ? operation.taskId
+      : `${operation.goalId}-${operation.focusId ?? "goal"}`;
+
+  return `${proposalId}-${recordId}-${operation.startTime}-${index}`;
+}
+
 function getProposalPreviewRange(proposal: ScheduleProposal) {
   const proposalEvents = getProposalPreviewEvents(proposal);
 
@@ -2068,6 +1739,10 @@ function normalizeProposalConflicts(
     : [];
 }
 
+function formatProposalDateTime(value: string) {
+  return formatLocaleDateTime(value);
+}
+
 function formatPreviewDay(value: Date) {
   return formatLocaleDate(value, {
     weekday: "short",
@@ -2076,35 +1751,14 @@ function formatPreviewDay(value: Date) {
   });
 }
 
-function formatPreviewRange(startDate: Date, endDate: Date) {
-  if (differenceInCalendarDays(endDate, startDate) === 0) {
-    return formatPreviewDay(startDate);
-  }
+function getPreviewDayWidth(viewportWidth: number, dayCount: number) {
+  const availableWidth = Math.max(0, viewportWidth - 96);
+  const targetWidth = Math.floor(availableWidth / Math.max(1, dayCount));
 
-  return `${formatPreviewDay(startDate)} - ${formatPreviewDay(endDate)}`;
-}
-
-function formatPreviewHour(hour: number) {
-  const normalizedHour = ((hour % 24) + 24) % 24;
-  const suffix = normalizedHour >= 12 ? "p" : "a";
-  const displayHour = normalizedHour % 12 || 12;
-
-  return `${displayHour}${suffix}`;
-}
-
-function formatPreviewEventTime(event: ProposalPreviewEvent) {
-  return `${formatShortTime(event.startTime)}-${formatShortTime(event.endTime)}`;
-}
-
-function formatShortTime(value: Date) {
-  const hours = value.getHours();
-  const minutes = value.getMinutes();
-  const suffix = hours >= 12 ? "p" : "a";
-  const displayHour = hours % 12 || 12;
-
-  return minutes === 0
-    ? `${displayHour}${suffix}`
-    : `${displayHour}:${minutes.toString().padStart(2, "0")}${suffix}`;
+  return Math.min(
+    PREVIEW_MAX_DAY_WIDTH,
+    Math.max(PREVIEW_MIN_DAY_WIDTH, targetWidth),
+  );
 }
 
 function getProposalStatusColor(status: ScheduleProposal["status"]) {

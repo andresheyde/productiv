@@ -108,7 +108,6 @@ type WorkspaceContextValue = {
     estimatedMinutes?: number | null;
     goalId?: string | null;
     priorityRank?: number;
-    recurrence?: Task["recurrence"];
     scheduleIntent?: Task["scheduleIntent"];
     status?: Task["status"];
     taskId: string;
@@ -420,7 +419,6 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
       estimatedMinutes?: number | null;
       goalId?: string | null;
       priorityRank?: number;
-      recurrence?: Task["recurrence"];
       scheduleIntent?: Task["scheduleIntent"];
       status?: Task["status"];
       taskId: string;
@@ -502,12 +500,11 @@ export function WorkspaceProvider({ children }: PropsWithChildren) {
 
   const dismissSchedulingSuggestion = useCallback(
     async (suggestionId: string) => {
-      const result = await dismissSchedulingSuggestionRequest({
+      await dismissSchedulingSuggestionRequest({
         suggestionId,
         sessionToken,
       });
 
-      setSchedulingContext(result.context);
       setSchedulingSuggestions((currentValue) =>
         currentValue.filter((suggestion) => suggestion.id !== suggestionId),
       );

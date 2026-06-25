@@ -28,11 +28,10 @@
     "development-builds": "npx eas-cli@latest workflow:run create-development-builds.yml",
     "deploy": "npx eas-cli@latest workflow:run deploy-to-production.yml",
     "test": "npm --prefix backend test",
-    "test:frontend": "node --test \"features/**/*.test.ts\"",
     "test:local": "npm run local:reset && RUN_LOCAL_INTEGRATION_TESTS=1 DATABASE_URL=${DATABASE_URL:-postgresql://productiv:productiv@localhost:54329/productiv_local} DIRECT_DATABASE_URL=${DIRECT_DATABASE_URL:-postgresql://productiv:productiv@localhost:54329/productiv_local} DATABASE_SSL_MODE=disable GOOGLE_INTEGRATION_PROVIDER=local AI_PROVIDER=deterministic WEB_APP_URL=${WEB_APP_URL:-http://localhost:8081} npm --prefix backend run test:local",
     "test:coverage": "npm --prefix backend run test:coverage",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm --prefix backend run typecheck && npm run test:frontend && npm run test:coverage && npm run lint"
+    "verify": "npm run typecheck && npm --prefix backend run typecheck && npm run test:coverage && npm run lint"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

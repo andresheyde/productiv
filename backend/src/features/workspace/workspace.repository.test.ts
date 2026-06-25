@@ -4,7 +4,6 @@ import type { QueryResult, QueryResultRow } from "pg";
 
 import {
   createAssistantThread,
-  createTask,
   deleteAssistantThread,
   getAssistantThreadById,
   listAssistantThreads,
@@ -49,33 +48,6 @@ class FakeAssistantThreadDb {
     }
 
     return queryResult(this.rows as T[]);
-  }
-}
-
-class FakeTaskDb {
-  calls: Array<{ text: string; params?: unknown[] }> = [];
-
-  async query<T extends QueryResultRow>(
-    text: string,
-    params?: unknown[],
-  ): Promise<QueryResult<T>> {
-    const call: { text: string; params?: unknown[] } = { text };
-
-    if (params !== undefined) {
-      call.params = params;
-    }
-
-    this.calls.push(call);
-
-    return queryResult([
-      taskRow({
-        id: "task-created",
-        recurrence:
-          typeof params?.[8] === "string"
-            ? JSON.parse(params[8]) as Record<string, unknown>
-            : null,
-      }),
-    ] as T[]);
   }
 }
 
@@ -159,52 +131,6 @@ test("updateAssistantThreadState can update only the deterministic thread title"
   ]);
 });
 
-test("createTask stores normalized recurrence metadata", async () => {
-  const db = new FakeTaskDb();
-  const task = await createTask(
-    {
-      userId: "user-1",
-      title: "Submit weekly report",
-      recurrence: {
-        frequency: "weekly",
-        interval: 1,
-        daysOfWeek: [3, 1, 3],
-        endsAt: null,
-        sourceText: "Every Monday and Wednesday",
-        scheduledOccurrences: [
-          {
-            dateKey: "2026-06-29",
-            startTime: "2026-06-29T12:00:00.000Z",
-            endTime: "2026-06-29T12:30:00.000Z",
-            calendarEventId: "primary:event-monday",
-            sourceProposalId: null,
-          },
-        ],
-      },
-    },
-    db,
-  );
-
-  assert.deepEqual(task.recurrence, {
-    frequency: "weekly",
-    interval: 1,
-    daysOfWeek: [1, 3],
-    endsAt: null,
-    sourceText: "Every Monday and Wednesday",
-    scheduledOccurrences: [
-      {
-        dateKey: "2026-06-29",
-        startTime: "2026-06-29T12:00:00.000Z",
-        endTime: "2026-06-29T12:30:00.000Z",
-        calendarEventId: "primary:event-monday",
-        sourceProposalId: null,
-      },
-    ],
-  });
-  assert.equal(typeof db.calls[0]?.params?.[8], "string");
-  assert.match(db.calls[0]?.text ?? "", /recurrence/u);
-});
-
 function assistantThreadRow(input: {
   id: string;
   title?: string;
@@ -218,27 +144,6 @@ function assistantThreadRow(input: {
     latest_artifact: {},
     created_at: new Date("2026-06-20T12:00:00.000Z"),
     updated_at: new Date(input.updatedAt ?? "2026-06-20T12:00:00.000Z"),
-  };
-}
-
-function taskRow(input: {
-  id: string;
-  recurrence?: Record<string, unknown> | null;
-}): QueryResultRow {
-  return {
-    id: input.id,
-    goal_id: null,
-    title: "Submit weekly report",
-    description: "",
-    priority_rank: 100,
-    status: "inbox",
-    estimated_minutes: null,
-    due_at: null,
-    recurrence: input.recurrence ?? null,
-    linked_calendar_event_id: null,
-    schedule_intent: "unscheduled",
-    created_at: new Date("2026-06-20T12:00:00.000Z"),
-    updated_at: new Date("2026-06-20T12:00:00.000Z"),
   };
 }
 
