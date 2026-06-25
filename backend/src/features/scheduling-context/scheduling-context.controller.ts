@@ -140,16 +140,16 @@ export async function dismissSchedulingSuggestion(
       return res.status(400).json({ error: "Missing suggestionId" });
     }
 
-    const suggestion = await dismissDerivedSchedulingSuggestion(
+    const result = await dismissDerivedSchedulingSuggestion(
       session.user.id,
       req.params.suggestionId,
     );
 
-    if (!suggestion) {
+    if (!result.suggestion) {
       return res.status(404).json({ error: "Suggestion not found" });
     }
 
-    return res.json({ suggestion });
+    return res.json(result);
   } catch (error) {
     return handleSchedulingContextError(res, "dismiss scheduling suggestion", error);
   }

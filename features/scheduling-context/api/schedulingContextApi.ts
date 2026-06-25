@@ -1,6 +1,7 @@
 import { apiRequest } from "@/features/shared/api/request";
 import type {
   DerivedSchedulingSuggestion,
+  SchedulingPreferenceRule,
   UserSchedulingContext,
   UserSchedulingContextUpdate,
 } from "@/features/scheduling-context/types";
@@ -95,6 +96,7 @@ export async function dismissSchedulingSuggestion(
   );
 
   return (await response.json()) as {
-    suggestion: DerivedSchedulingSuggestion;
+    context: UserSchedulingContext;
+    suggestion: SchedulingPreferenceRule;
   };
 }

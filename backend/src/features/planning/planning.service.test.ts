@@ -35,34 +35,15 @@ test("runPlanningTurn asks for clarification when the draft is incomplete", asyn
   const provider = new FakeStructuredAiProvider([
     {
       assistantMessage: "What outcome should this plan optimize for first?",
-      draftPlanningState: {
-        mediumTermGoal: "Launch Productiv",
-        confidenceFlags: {
-          mediumTermGoal: "medium",
-        },
-      },
-      schedulingPreferenceCandidates: [
-        {
-          kind: "custom",
-          title: "  Keep launch planning in the morning  ",
-          detail: "  Morning planning feels more sustainable.  ",
-          strength: "soft_preference",
-          confidence: "medium",
-          applicabilityScope: "goal",
-          domain: "work",
-          goalTitle: "Launch Productiv",
-          activityTitle: "launch planning",
-          temporalScope: null,
-          evidence: "I prefer planning Productiv in the morning.",
-        },
-      ],
+      draftPlanningState: {},
+      schedulingPreferenceCandidates: [],
       status: "needs_clarification",
     },
   ]);
 
   const result = await runPlanningTurn({
     aiProvider: provider,
-    chatHistory: [{ role: "user", content: "I need a plan for Productiv." }],
+    chatHistory: [{ role: "user", content: "Help me plan." }],
   });
 
   assert.equal(provider.calls.length, 1);
@@ -73,13 +54,8 @@ test("runPlanningTurn asks for clarification when the draft is incomplete", asyn
     result.assistantMessage,
     "What outcome should this plan optimize for first?",
   );
-  assert.equal(result.draftPlanningState.mediumTermGoal, "Launch Productiv");
-  assert.equal(result.draftPlanningState.confidenceFlags.mediumTermGoal, "medium");
-  assert.equal(result.schedulingPreferenceCandidates[0]?.applicabilityScope, "goal");
-  assert.equal(
-    result.schedulingPreferenceCandidates[0]?.title,
-    "Keep launch planning in the morning",
-  );
+  assert.equal(result.draftPlanningState.mediumTermGoal, null);
+  assert.deepEqual(result.schedulingPreferenceCandidates, []);
   assert.equal(result.generatedPlan, null);
 });
 
@@ -98,7 +74,7 @@ test("runPlanningTurn does not synthesize a plan when plan_ready lacks required 
     {
       assistantMessage: "I have enough to draft a plan.",
       draftPlanningState: {
-        mediumTermGoal: "Launch Productiv",
+        mediumTermGoal: "Improve my life",
       },
       status: "plan_ready",
     },
@@ -106,7 +82,7 @@ test("runPlanningTurn does not synthesize a plan when plan_ready lacks required 
 
   const result = await runPlanningTurn({
     aiProvider: provider,
-    chatHistory: [{ role: "user", content: "Launch Productiv." }],
+    chatHistory: [{ role: "user", content: "I want to improve my life." }],
     currentDraftPlanningState: createEmptyDraftPlanningState(),
     schedulingContext: { preferredFocusBlockMinutes: 90 },
   });
@@ -114,9 +90,97 @@ test("runPlanningTurn does not synthesize a plan when plan_ready lacks required 
   assert.equal(provider.calls.length, 1);
   assert.match(provider.calls[0]?.input ?? "", /"preferredFocusBlockMinutes": 90/u);
   assert.equal(result.status, "needs_clarification");
-  assert.match(result.assistantMessage, /activities, tasks, or focus areas/u);
+  assert.match(result.assistantMessage, /one activity, constraint, or clue/u);
+  assert.match(result.assistantMessage, /choose for me/u);
   assert.doesNotMatch(result.assistantMessage, /enough to draft/u);
   assert.equal(result.generatedPlan, null);
+});
+
+test("runPlanningTurn infers starter activities for project launch goals", async () => {
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage: "I have enough to draft a plan.",
+      draftPlanningState: {
+        mediumTermGoal: "Launch Productiv",
+      },
+      status: "plan_ready",
+    },
+    {
+      direction: "Deep work and review notes",
+      mediumTermGoal: "Launch Productiv",
+      thirtyDayPerformanceGoals: ["Make steady launch progress"],
+      fourteenDayPerformanceGoals: ["Start a repeatable launch work rhythm"],
+      timeAvailability: "Not specified yet",
+      timeProtectionPlan: [],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+      constraints: [],
+      summary: "Create a cautious first launch plan around deep work and review.",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [{ role: "user", content: "Launch Productiv." }],
+    currentDraftPlanningState: createEmptyDraftPlanningState(),
+  });
+
+  assert.equal(provider.calls.length, 2);
+  assert.equal(provider.calls[1]?.schemaName, "generated_plan");
+  assert.equal(result.status, "plan_ready");
+  assert.deepEqual(result.draftPlanningState.direction, [
+    "Deep work",
+    "Review notes",
+  ]);
+  assert.equal(result.draftPlanningState.confidenceFlags.direction, "low");
+});
+
+test("runPlanningTurn infers starter activities for common outcome-only goals", async () => {
+  const provider = new FakeStructuredAiProvider([
+    {
+      assistantMessage:
+        "What specific activities or habits do you think would help you get visible abs?",
+      draftPlanningState: {
+        mediumTermGoal: "get visible abs",
+      },
+      status: "needs_clarification",
+    },
+    {
+      direction: "Strength training and cardio",
+      mediumTermGoal: "Build visible abs with a sustainable training rhythm",
+      thirtyDayPerformanceGoals: [
+        "Complete strength training and cardio sessions consistently",
+      ],
+      fourteenDayPerformanceGoals: [
+        "Start a repeatable starter rhythm across strength training and cardio",
+      ],
+      timeAvailability: "Not specified yet",
+      timeProtectionPlan: [],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+      constraints: [],
+      summary:
+        "Create a cautious first fitness plan around strength training and cardio.",
+    },
+  ]);
+
+  const result = await runPlanningTurn({
+    aiProvider: provider,
+    chatHistory: [{ role: "user", content: "I want to get visible abs." }],
+    currentDraftPlanningState: createEmptyDraftPlanningState(),
+  });
+
+  assert.equal(provider.calls.length, 2);
+  assert.equal(provider.calls[1]?.schemaName, "generated_plan");
+  assert.equal(result.status, "plan_ready");
+  assert.doesNotMatch(result.assistantMessage, /What specific activities/u);
+  assert.deepEqual(result.draftPlanningState.direction, [
+    "Strength training",
+    "Cardio",
+  ]);
+  assert.equal(result.draftPlanningState.confidenceFlags.direction, "low");
 });
 
 test("runPlanningTurn rejects plan_ready when the model omits all core details", async () => {
@@ -142,7 +206,7 @@ test("runPlanningTurn rejects plan_ready when the model omits all core details",
   assert.equal(result.generatedPlan, null);
 });
 
-test("runPlanningTurn asks for user-owned focus areas before creating broad fitness goals", async () => {
+test("runPlanningTurn infers starter focus areas before creating broad fitness goals", async () => {
   const provider = new FakeStructuredAiProvider([
     {
       assistantMessage: "I can turn that into a first fitness plan.",
@@ -159,6 +223,25 @@ test("runPlanningTurn asks for user-owned focus areas before creating broad fitn
       },
       schedulingPreferenceCandidates: [],
       status: "plan_ready",
+    },
+    {
+      direction: "Strength training and cardio",
+      mediumTermGoal:
+        "Reduce body fat, build strength, improve stamina, play sports without pain, and develop visible abdominal definition within 6 months",
+      thirtyDayPerformanceGoals: [
+        "Complete strength training and cardio sessions consistently",
+      ],
+      fourteenDayPerformanceGoals: [
+        "Start a repeatable starter rhythm across strength training and cardio",
+      ],
+      timeAvailability: "Not specified yet",
+      timeProtectionPlan: [],
+      limitingHabits: [],
+      scriptedActions: [],
+      environmentalOptimizations: [],
+      constraints: [],
+      summary:
+        "Create a cautious first fitness plan around strength training and cardio.",
     },
   ]);
 
@@ -179,11 +262,15 @@ test("runPlanningTurn asks for user-owned focus areas before creating broad fitn
     currentDraftPlanningState: createEmptyDraftPlanningState(),
   });
 
-  assert.equal(provider.calls.length, 1);
-  assert.equal(result.status, "needs_clarification");
-  assert.equal(result.generatedPlan, null);
-  assert.match(result.assistantMessage, /activities, tasks, or focus areas/u);
-  assert.match(result.assistantMessage, /help choosing/u);
+  assert.equal(provider.calls.length, 2);
+  assert.equal(provider.calls[1]?.schemaName, "generated_plan");
+  assert.equal(result.status, "plan_ready");
+  assert.deepEqual(result.draftPlanningState.direction, [
+    "Strength training",
+    "Cardio",
+  ]);
+  assert.equal(result.draftPlanningState.confidenceFlags.direction, "low");
+  assert.doesNotMatch(result.assistantMessage, /activities, tasks, or focus areas/u);
 });
 
 test("runPlanningTurn synthesizes a goal without optional barrier analysis", async () => {

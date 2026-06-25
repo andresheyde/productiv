@@ -25,6 +25,7 @@ import {
 import type {
   CompiledSchedulingContext,
   SchedulingConflict,
+  SchedulingPreferenceCandidate,
   UserSchedulingContextRecord,
 } from "../scheduling-context/scheduling-context.types.ts";
 import {
@@ -43,11 +44,30 @@ import {
 } from "./assistant.prompts.ts";
 import {
   createScheduleProposal,
+  getScheduleProposalById,
   listDraftScheduleProposals,
+  listRecentAppliedScheduleProposals,
   type ScheduleProposalOperation,
   type ScheduleProposalRecord,
   updateScheduleProposalStatus,
 } from "./schedule-proposals.repository.ts";
+import {
+  buildSchedulingAssemblyDraft,
+  buildSchedulingCandidateSlots,
+  buildSchedulingPlacementPolicy,
+  type SchedulingAssemblyAssignment,
+  type SchedulingAssemblyDraft,
+  type SchedulingHorizonOverride,
+} from "./scheduling-placement-policy.ts";
+import {
+  createStableFocusId,
+  findReusablePersonalRoutinesGoal,
+  inferGoalFocusSchedulingDefaults,
+  mergeGoalFocusAreas,
+  mergeGoalScheduleGuidance,
+  mergeUniqueTextList,
+  normalizeComparableTitle,
+} from "./goal-routines.ts";
 import type {
   AssistantAction,
   AssistantSideEffects,
@@ -85,8 +105,17 @@ import type {
   GoalFocusArea,
   GoalMetricRecord,
   GoalRecord,
+  TaskRecurrence,
   TaskRecord,
 } from "../workspace/workspace.types.ts";
+
+export {
+  findReusablePersonalRoutinesGoal,
+  inferGoalFocusSchedulingDefaults,
+  mergeGoalFocusAreas,
+  mergeGoalScheduleGuidance,
+  mergeUniqueTextList,
+} from "./goal-routines.ts";
 
 export class AssistantThreadNotFoundError extends Error {
   constructor() {
@@ -125,6 +154,11 @@ type ScheduleActionDetails =
   | ScheduleTaskActionDetails
   | ScheduleGoalFocusActionDetails;
 
+type CalendarEventWriter = {
+  createEvent: typeof createGoogleCalendarEvent;
+  updateEvent: typeof updateGoogleCalendarEvent;
+};
+
 type ScheduleCalendarEventContext = {
   id: string | null;
   title: string;
@@ -143,13 +177,36 @@ type TaskSchedulingContextItem = {
   priorityRank: number;
   estimatedMinutes: number | null;
   dueAt: string | null;
+  recurrence: TaskRecord["recurrence"];
+  scheduledDateKeys: string[];
+  revisionOccurrenceKeys?: string[];
   scheduleIntent: TaskRecord["scheduleIntent"];
   linkedCalendarEventId: string | null;
-  calendarStatus: "scheduled" | "pending_proposal" | "needs_scheduling";
+  calendarStatus:
+    | "scheduled"
+    | "pending_proposal"
+    | "needs_scheduling"
+    | "not_requested";
   reason: string;
   matchedCalendarEvent: ScheduleCalendarEventContext | null;
   pendingProposalId: string | null;
 };
+
+type ScheduleProposalRevisionFeedback = {
+  proposalId: string;
+  feedback: string;
+};
+
+type WeekdayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+const SCHEDULED_FOCUS_BLOCKS_GUIDANCE_KEY = "scheduledFocusBlocks";
+
+type SchedulingAssemblyTaskInput = Parameters<
+  typeof buildSchedulingAssemblyDraft
+>[0]["tasks"][number];
+type SchedulingAssemblyGoalInput = Parameters<
+  typeof buildSchedulingAssemblyDraft
+>[0]["goals"][number];
 
 export async function getAssistantThreadForUser(
   userId: string,
@@ -231,10 +288,19 @@ export async function runAssistantTurn(input: {
     userSchedulingContext,
   );
   const pendingScheduleProposals = await listDraftScheduleProposals(input.user.id);
+  const recentAppliedScheduleProposals =
+    await listRecentAppliedScheduleProposals(input.user.id);
 
   const inferredMode = inferTurnMode(trimmedMessage, input.mode, metrics.length > 0);
 
-  if (shouldUsePlanningFlow(thread.latestArtifact, goals.length, inferredMode)) {
+  if (
+    shouldUsePlanningFlow(
+      thread.latestArtifact,
+      goals.length,
+      inferredMode,
+      trimmedMessage,
+    )
+  ) {
     return handlePlanningTurn({
       threadId: thread.id,
       userId: input.user.id,
@@ -296,6 +362,7 @@ export async function runAssistantTurn(input: {
     userSchedulingContext,
     compiledSchedulingContext,
     pendingScheduleProposals,
+    recentAppliedScheduleProposals,
     taskSchedulingContext,
     scheduleRelevantCalendarEvents: calendarContext.events,
     calendarContextWarning: calendarContext.warning,
@@ -688,12 +755,72 @@ async function handleGeneralAssistantTurn(input: {
   userSchedulingContext: UserSchedulingContextRecord;
   compiledSchedulingContext: CompiledSchedulingContext;
   pendingScheduleProposals: ScheduleProposalRecord[];
+  recentAppliedScheduleProposals: ScheduleProposalRecord[];
   taskSchedulingContext: TaskSchedulingContextItem[];
-  scheduleRelevantCalendarEvents: Array<Record<string, unknown>>;
+  scheduleRelevantCalendarEvents: ScheduleCalendarEventContext[];
   calendarContextWarning: string | null;
   latestUserMessageId: string;
 }): Promise<AssistantTurnResponse> {
   const aiProvider = getStructuredAiProvider();
+  const schedulingPlacementPolicy = buildSchedulingPlacementPolicy({
+    schedulingContext: input.compiledSchedulingContext,
+  });
+  const pendingProposalsById = new Map(
+    input.pendingScheduleProposals.map((proposal) => [proposal.id, proposal]),
+  );
+  const recentAppliedProposalsById = new Map(
+    input.recentAppliedScheduleProposals.map((proposal) => [
+      proposal.id,
+      proposal,
+    ]),
+  );
+  const proposalRevisionFeedback = parseScheduleProposalRevisionFeedback(
+    input.message,
+    getDefaultDraftProposalId(pendingProposalsById) ??
+      getDefaultRecentAppliedProposalId(input.recentAppliedScheduleProposals),
+  );
+  const proposalRevisionProposal = proposalRevisionFeedback
+    ? await resolveScheduleProposalForRevision({
+        userId: input.userId,
+        proposalId: proposalRevisionFeedback.proposalId,
+        pendingProposalsById,
+        recentAppliedProposalsById,
+        loadScheduleProposalById: getScheduleProposalById,
+      })
+    : null;
+  const proposalRevisionSourceProposalsById = new Map(pendingProposalsById);
+  if (proposalRevisionProposal) {
+    proposalRevisionSourceProposalsById.set(
+      proposalRevisionProposal.id,
+      proposalRevisionProposal,
+    );
+  }
+  const pendingScheduleProposalsForTurn = [...pendingProposalsById.values()];
+  const schedulingHorizonOverride = buildScheduleProposalRevisionHorizonOverride(
+    proposalRevisionProposal,
+    proposalRevisionFeedback,
+  );
+  const schedulingCandidateSlots = buildSchedulingCandidateSlots({
+    message: input.message,
+    schedulingContext: input.compiledSchedulingContext,
+    placementPolicy: schedulingPlacementPolicy,
+    calendarEvents: input.scheduleRelevantCalendarEvents,
+    horizonOverride: schedulingHorizonOverride,
+  });
+  const schedulingAssemblyInputs = buildSchedulingAssemblyInputsForTurn({
+    tasks: input.taskSchedulingContext,
+    goals: input.goals,
+    proposalRevisionFeedback,
+    pendingProposalsById,
+    revisionSourceProposalsById: proposalRevisionSourceProposalsById,
+  });
+  const schedulingAssemblyDraft = buildSchedulingAssemblyDraft({
+    message: input.message,
+    candidateSlots: schedulingCandidateSlots,
+    tasks: schedulingAssemblyInputs.tasks,
+    goals: schedulingAssemblyInputs.goals,
+    schedulingContext: input.compiledSchedulingContext,
+  });
   const modelResponse = normalizeAssistantModelResponse(
     await aiProvider.generateJson({
       instructions: createAssistantTurnInstructions(),
@@ -708,7 +835,11 @@ async function handleGeneralAssistantTurn(input: {
           content: message.content,
         })),
         schedulingContext: input.compiledSchedulingContext,
-        pendingScheduleProposals: input.pendingScheduleProposals,
+        schedulingPlacementPolicy,
+        schedulingCandidateSlots,
+        schedulingAssemblyDraft,
+        pendingScheduleProposals: pendingScheduleProposalsForTurn,
+        recentAppliedScheduleProposals: input.recentAppliedScheduleProposals,
         taskSchedulingContext: input.taskSchedulingContext,
         scheduleRelevantCalendarEvents: input.scheduleRelevantCalendarEvents,
         calendarContextNote: input.calendarContextWarning,
@@ -727,14 +858,17 @@ async function handleGeneralAssistantTurn(input: {
   const goalsById = new Map(input.goals.map((goal) => [goal.id, goal]));
   const tasksById = new Map(input.tasks.map((task) => [task.id, task]));
   const metricsById = new Map(input.metrics.map((metric) => [metric.id, metric]));
-  const pendingProposalsById = new Map(
-    input.pendingScheduleProposals.map((proposal) => [proposal.id, proposal]),
-  );
+  const proposalFeedbackPreferenceCandidates = proposalRevisionFeedback
+    ? deriveSchedulingPreferenceCandidatesFromProposalFeedback(
+        proposalRevisionFeedback.feedback,
+      )
+    : [];
 
   try {
     await client.query("begin");
 
     const deferredProposalActions: AssistantAction[] = [];
+    const appliedActions = [...modelResponse.actions];
 
     for (const action of modelResponse.actions) {
       if (isScheduleProposalAction(action)) {
@@ -761,16 +895,86 @@ async function handleGeneralAssistantTurn(input: {
       );
     }
 
-    if (deferredProposalActions.length > 0) {
+    const deterministicSchedulingAssemblyDraft =
+      buildSchedulingAssemblyDraftForTurn({
+        message: input.message,
+        candidateSlots: schedulingCandidateSlots,
+        tasks: [...tasksById.values()],
+        goals: [...goalsById.values()],
+        pendingScheduleProposals: [...pendingProposalsById.values()],
+        calendarEvents: input.scheduleRelevantCalendarEvents,
+        proposalRevisionFeedback,
+        pendingProposalsById,
+        revisionSourceProposalsById: proposalRevisionSourceProposalsById,
+        schedulingContext: input.compiledSchedulingContext,
+      });
+    const deterministicProposalActions =
+      buildScheduleProposalActionsFromSchedulingAssemblyDraft({
+        message: input.message,
+        modelActions: modelResponse.actions,
+        draft: deterministicSchedulingAssemblyDraft,
+        proposalRevisionFeedback,
+      });
+
+    if (deterministicProposalActions.length > 0) {
+      appliedActions.push(...deterministicProposalActions);
+      warnings.push(
+        ...buildDeterministicScheduleProposalWarnings({
+          deterministicProposalActions,
+          draft: deterministicSchedulingAssemblyDraft,
+        }),
+      );
+    }
+
+    const proposalActions =
+      deferredProposalActions.length > 0
+        ? [...deferredProposalActions, ...deterministicProposalActions]
+        : deterministicProposalActions;
+
+    if (proposalActions.length > 0) {
+      const scheduleProposalCountBeforeCreate = sideEffects.scheduleProposals.length;
       await createProposalFromSchedulingActions(
         {
           userId: input.userId,
-          actions: deferredProposalActions,
+          actions: proposalActions,
           goalsById,
           tasksById,
           threadId: input.threadId,
           userSchedulingContext: input.userSchedulingContext,
           pendingProposalsById,
+          sideEffects,
+          warnings,
+        },
+        client,
+        deterministicProposalActions.length > 0
+          ? {
+              reason:
+                "I used Productiv's scheduling engine to draft this proposal instead of asking you to pick times.",
+            }
+          : undefined,
+      );
+      await maybeRecordScheduleProposalRevisionFeedback(
+        {
+          userId: input.userId,
+          proposalRevisionFeedback,
+          pendingProposalsById,
+          revisionSourceProposalsById: proposalRevisionSourceProposalsById,
+          replacementProposal:
+            sideEffects.scheduleProposals[scheduleProposalCountBeforeCreate] ??
+            null,
+          sideEffects,
+          warnings,
+        },
+        client,
+      );
+    } else {
+      await maybeRecordScheduleProposalRevisionFeedback(
+        {
+          userId: input.userId,
+          proposalRevisionFeedback,
+          pendingProposalsById,
+          revisionSourceProposalsById: proposalRevisionSourceProposalsById,
+          replacementProposal: null,
           sideEffects,
           warnings,
         },
@@ -794,7 +998,23 @@ async function handleGeneralAssistantTurn(input: {
         },
         client,
       );
-    sideEffects.schedulingSuggestions.push(...schedulingSuggestions);
+    const proposalFeedbackSchedulingSuggestions =
+      await createDerivedSchedulingSuggestionsFromCandidates(
+        {
+          userId: input.userId,
+          candidates: proposalFeedbackPreferenceCandidates,
+          origin: "schedule_proposal_feedback",
+          threadId: input.threadId,
+          messageId: input.latestUserMessageId,
+          turnMode: "chat",
+        },
+        client,
+      );
+    const allSchedulingSuggestions = [
+      ...schedulingSuggestions,
+      ...proposalFeedbackSchedulingSuggestions,
+    ];
+    sideEffects.schedulingSuggestions.push(...allSchedulingSuggestions);
 
     const assistantMessage = appendWarnings(
       modelResponse.assistantMessage,
@@ -808,11 +1028,13 @@ async function handleGeneralAssistantTurn(input: {
         intent: "workspace_assistant",
         content: assistantMessage,
         structuredPayload: {
-          actions: modelResponse.actions,
+          actions: appliedActions,
           schedulingPreferenceCandidates:
             modelResponse.schedulingPreferenceCandidates,
-          schedulingSuggestions,
+          proposalFeedbackPreferenceCandidates,
+          schedulingSuggestions: allSchedulingSuggestions,
           scheduleProposals: sideEffects.scheduleProposals,
+          proposalRevisionFeedback,
           sideEffects,
         },
       },
@@ -994,21 +1216,73 @@ async function applyAssistantAction(
         return;
       }
 
-      const goal = await createGoal(
-        {
-          userId: input.userId,
-          title: input.action.title,
-          definition: input.action.definition ?? "",
-          successCriteria: input.action.successCriteria,
-          focusAreas: input.action.focusAreas,
-          scheduleGuidance: input.action.scheduleGuidance ?? undefined,
-          constraints: input.action.constraints,
-          notes: input.action.notes,
-          priorityRank: toIntegerOrUndefined(input.action.priorityRank),
-          status: isGoalStatus(input.action.status) ? input.action.status : "active",
-        },
-        db,
-      );
+      const reusablePersonalRoutinesGoal = findReusablePersonalRoutinesGoal({
+        title: input.action.title,
+        goalsById: input.goalsById,
+      });
+      const goal = reusablePersonalRoutinesGoal
+        ? await patchGoal(
+            {
+              userId: input.userId,
+              goalId: reusablePersonalRoutinesGoal.id,
+              definition: reusablePersonalRoutinesGoal.definition.trim()
+                ? undefined
+                : input.action.definition ?? undefined,
+              successCriteria:
+                input.action.successCriteria.length > 0
+                  ? mergeUniqueTextList(
+                      reusablePersonalRoutinesGoal.successCriteria,
+                      input.action.successCriteria,
+                    )
+                  : undefined,
+              focusAreas: mergeGoalFocusAreas(
+                reusablePersonalRoutinesGoal.focusAreas,
+                input.action.focusAreas,
+              ),
+              scheduleGuidance: mergeGoalScheduleGuidance(
+                reusablePersonalRoutinesGoal.scheduleGuidance,
+                input.action.scheduleGuidance,
+              ),
+              constraints:
+                input.action.constraints.length > 0
+                  ? mergeUniqueTextList(
+                      reusablePersonalRoutinesGoal.constraints,
+                      input.action.constraints,
+                    )
+                  : undefined,
+              notes:
+                reusablePersonalRoutinesGoal.notes?.trim()
+                  ? undefined
+                  : input.action.notes,
+              priorityRank: toIntegerOrUndefined(input.action.priorityRank),
+              status: isGoalStatus(input.action.status)
+                ? input.action.status
+                : "active",
+            },
+            db,
+          )
+        : await createGoal(
+            {
+              userId: input.userId,
+              title: input.action.title,
+              definition: input.action.definition ?? "",
+              successCriteria: input.action.successCriteria,
+              focusAreas: input.action.focusAreas,
+              scheduleGuidance: input.action.scheduleGuidance ?? undefined,
+              constraints: input.action.constraints,
+              notes: input.action.notes,
+              priorityRank: toIntegerOrUndefined(input.action.priorityRank),
+              status: isGoalStatus(input.action.status)
+                ? input.action.status
+                : "active",
+            },
+            db,
+          );
+
+      if (!goal) {
+        return;
+      }
+
       input.goalsById.set(goal.id, goal);
       input.sideEffects.goals.push(goal);
       const goalMetrics = await ensureGoalMetricsForGoal(
@@ -1031,6 +1305,7 @@ async function applyAssistantAction(
         return;
       }
 
+      const existingGoal = input.goalsById.get(input.action.goalId);
       const goal = await patchGoal(
         {
           userId: input.userId,
@@ -1043,7 +1318,12 @@ async function applyAssistantAction(
               : undefined,
           focusAreas:
             input.action.focusAreas.length > 0
-              ? input.action.focusAreas
+              ? existingGoal
+                ? mergeGoalFocusAreas(
+                    existingGoal.focusAreas,
+                    input.action.focusAreas,
+                  )
+                : input.action.focusAreas
               : undefined,
           scheduleGuidance: input.action.scheduleGuidance ?? undefined,
           constraints:
@@ -1083,10 +1363,15 @@ async function applyAssistantAction(
         return;
       }
 
+      const goalId = resolveGoalIdForTurnAction({
+        actionGoalId: input.action.goalId,
+        turnGoals: input.sideEffects.goals,
+      });
+
       const task = await createTask(
         {
           userId: input.userId,
-          goalId: input.action.goalId,
+          goalId,
           title: input.action.title,
           description: input.action.description ?? "",
           priorityRank: toIntegerOrUndefined(input.action.priorityRank),
@@ -1095,6 +1380,7 @@ async function applyAssistantAction(
             : "inbox",
           estimatedMinutes: toIntegerOrNull(input.action.estimatedMinutes),
           dueAt: parseOptionalIsoDate(input.action.dueAt),
+          recurrence: input.action.recurrence,
           scheduleIntent: isScheduleIntent(input.action.scheduleIntent)
             ? input.action.scheduleIntent
             : "unscheduled",
@@ -1135,6 +1421,10 @@ async function applyAssistantAction(
             input.action.dueAt === null
               ? undefined
               : parseOptionalIsoDate(input.action.dueAt),
+          recurrence:
+            input.action.recurrence === null
+              ? undefined
+              : input.action.recurrence,
           scheduleIntent: isScheduleIntent(input.action.scheduleIntent)
             ? input.action.scheduleIntent
             : undefined,
@@ -1151,8 +1441,13 @@ async function applyAssistantAction(
       return;
     }
     case "create_metric": {
+      const goalId = resolveGoalIdForTurnAction({
+        actionGoalId: input.action.goalId,
+        turnGoals: input.sideEffects.goals,
+      });
+
       if (
-        !input.action.goalId ||
+        !goalId ||
         !input.action.title ||
         !input.action.unitLabel ||
         input.action.targetValue === null ||
@@ -1164,7 +1459,7 @@ async function applyAssistantAction(
       const metric = await createGoalMetric(
         {
           userId: input.userId,
-          goalId: input.action.goalId,
+          goalId,
           name: input.action.title,
           unitLabel: input.action.unitLabel,
           targetValue: input.action.targetValue,
@@ -1326,6 +1621,67 @@ async function createProposalFromSchedulingActions(
   );
 }
 
+async function maybeRecordScheduleProposalRevisionFeedback(
+  input: {
+    userId: string;
+    proposalRevisionFeedback: ScheduleProposalRevisionFeedback | null;
+    pendingProposalsById: Map<string, ScheduleProposalRecord>;
+    revisionSourceProposalsById: Map<string, ScheduleProposalRecord>;
+    replacementProposal: ScheduleProposalRecord | null;
+    sideEffects: AssistantSideEffects;
+    warnings: string[];
+  },
+  db: ReturnType<typeof getWorkspaceExecutor>,
+) {
+  if (!input.proposalRevisionFeedback) {
+    return;
+  }
+
+  const originalProposal = input.revisionSourceProposalsById.get(
+    input.proposalRevisionFeedback.proposalId,
+  );
+
+  if (!originalProposal) {
+    input.warnings.push(
+      "I couldn't find the original schedule proposal for that feedback, so I left existing drafts unchanged.",
+    );
+    return;
+  }
+
+  const updatedOriginalProposal = await updateScheduleProposalStatus(
+    {
+      userId: input.userId,
+      proposalId: originalProposal.id,
+      status:
+        originalProposal.status === "draft"
+          ? input.replacementProposal
+            ? "superseded"
+            : "draft"
+          : originalProposal.status,
+      feedbackEntry: createScheduleProposalRevisionFeedbackEntry({
+        feedback: input.proposalRevisionFeedback.feedback,
+        replacementProposalId: input.replacementProposal?.id ?? null,
+      }),
+    },
+    db,
+  );
+
+  if (updatedOriginalProposal) {
+    input.sideEffects.scheduleProposals.push(updatedOriginalProposal);
+  }
+
+  if (input.replacementProposal) {
+    if (originalProposal.status === "draft") {
+      input.pendingProposalsById.delete(originalProposal.id);
+    }
+    return;
+  }
+
+  input.warnings.push(
+    "I saved that feedback on the draft. I still need enough detail to propose a revised schedule.",
+  );
+}
+
 async function applyDirectScheduleAction(
   input: {
     userId: string;
@@ -1369,6 +1725,11 @@ async function applyDirectScheduleAction(
     input.sideEffects.tasks.push(applied.task);
   }
 
+  if (applied.type === "goal_focus") {
+    input.goalsById.set(applied.goal.id, applied.goal);
+    input.sideEffects.goals.push(applied.goal);
+  }
+
   if (conflicts.length > 0) {
     input.warnings.push(
       `That slot conflicts with your saved preferences (${formatConflictList(conflicts)}), but I kept your explicit choice and scheduled it.`,
@@ -1391,7 +1752,13 @@ async function confirmScheduleProposalAction(
   },
   db: ReturnType<typeof getWorkspaceExecutor>,
 ) {
-  const proposal = resolvePendingProposal(input.action.proposalId, input.pendingProposalsById);
+  const proposal = await resolvePendingProposal({
+    userId: input.userId,
+    proposalId: input.action.proposalId,
+    pendingProposalsById: input.pendingProposalsById,
+    loadScheduleProposalById: (userId, proposalId) =>
+      getScheduleProposalById(userId, proposalId, db),
+  });
 
   if (!proposal) {
     input.warnings.push("I couldn't find a pending schedule proposal to confirm.");
@@ -1437,11 +1804,17 @@ async function confirmScheduleProposalAction(
   );
 
   for (const details of resolvedScheduleDetails) {
+    const detailsToApply = refreshScheduleDetailsFromMaps(
+      details,
+      input.goalsById,
+      input.tasksById,
+    );
     const applied = await applyScheduleDetailsToCalendar(
       input.userId,
       input.tokens,
-      details,
+      detailsToApply,
       db,
+      { sourceProposalId: proposal.id },
     );
 
     if (!applied) {
@@ -1453,9 +1826,14 @@ async function confirmScheduleProposalAction(
       input.tasksById.set(applied.task.id, applied.task);
       input.sideEffects.tasks.push(applied.task);
     }
+
+    if (applied.type === "goal_focus") {
+      input.goalsById.set(applied.goal.id, applied.goal);
+      input.sideEffects.goals.push(applied.goal);
+    }
   }
 
-  await updateScheduleProposalStatus(
+  const appliedProposal = await updateScheduleProposalStatus(
     {
       userId: input.userId,
       proposalId: proposal.id,
@@ -1467,6 +1845,9 @@ async function confirmScheduleProposalAction(
     },
     db,
   );
+  if (appliedProposal) {
+    input.sideEffects.scheduleProposals.push(appliedProposal);
+  }
   input.pendingProposalsById.delete(proposal.id);
 
   if (conflicts.length > 0) {
@@ -1481,18 +1862,25 @@ async function dismissScheduleProposalAction(
     userId: string;
     action: AssistantAction;
     pendingProposalsById: Map<string, ScheduleProposalRecord>;
+    sideEffects: AssistantSideEffects;
     warnings: string[];
   },
   db: ReturnType<typeof getWorkspaceExecutor>,
 ) {
-  const proposal = resolvePendingProposal(input.action.proposalId, input.pendingProposalsById);
+  const proposal = await resolvePendingProposal({
+    userId: input.userId,
+    proposalId: input.action.proposalId,
+    pendingProposalsById: input.pendingProposalsById,
+    loadScheduleProposalById: (userId, proposalId) =>
+      getScheduleProposalById(userId, proposalId, db),
+  });
 
   if (!proposal) {
     input.warnings.push("I couldn't find a pending schedule proposal to dismiss.");
     return;
   }
 
-  await updateScheduleProposalStatus(
+  const canceledProposal = await updateScheduleProposalStatus(
     {
       userId: input.userId,
       proposalId: proposal.id,
@@ -1504,6 +1892,9 @@ async function dismissScheduleProposalAction(
     },
     db,
   );
+  if (canceledProposal) {
+    input.sideEffects.scheduleProposals.push(canceledProposal);
+  }
   input.pendingProposalsById.delete(proposal.id);
   input.warnings.push("I dismissed that pending schedule proposal and left your calendar unchanged.");
 }
@@ -1559,6 +1950,7 @@ async function resolveScheduleActionDetails(
     operation: {
       type: "schedule_task",
       taskId: task.id,
+      occurrenceKey: input.action.occurrenceKey,
       title,
       description,
       startTime: startTime.toISOString(),
@@ -1605,15 +1997,13 @@ async function resolveTaskForSchedulingAction(
   return task;
 }
 
-function resolveGoalFocusForSchedulingAction(input: {
+export function resolveGoalFocusForSchedulingAction(input: {
   action: AssistantAction;
   goalsById: Map<string, GoalRecord>;
   startTime: Date;
   endTime: Date;
 }): ScheduleGoalFocusActionDetails | null {
-  const goal = input.action.goalId
-    ? input.goalsById.get(input.action.goalId) ?? null
-    : null;
+  const goal = resolveGoalForSchedulingAction(input.action, input.goalsById);
 
   if (!goal) {
     return null;
@@ -1648,6 +2038,35 @@ function resolveGoalFocusForSchedulingAction(input: {
       endTime: input.endTime.toISOString(),
     },
   };
+}
+
+function resolveGoalForSchedulingAction(
+  action: AssistantAction,
+  goalsById: Map<string, GoalRecord>,
+) {
+  if (action.goalId) {
+    return goalsById.get(action.goalId) ?? null;
+  }
+
+  const matchingFocusGoals = Array.from(goalsById.values()).filter((goal) =>
+    resolveGoalFocusArea(goal, action.focusId, action.title),
+  );
+
+  if (matchingFocusGoals.length === 1) {
+    return matchingFocusGoals[0] ?? null;
+  }
+
+  const normalizedTitle = normalizeComparableTitle(action.title ?? "");
+
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  const matchingTitleGoals = Array.from(goalsById.values()).filter(
+    (goal) => normalizeComparableTitle(goal.title) === normalizedTitle,
+  );
+
+  return matchingTitleGoals.length === 1 ? matchingTitleGoals[0] ?? null : null;
 }
 
 export function formatScheduleBlockTitleForCalendar(
@@ -1796,15 +2215,65 @@ function resolveScheduleDetailsFromProposalOperation(
   };
 }
 
+function refreshGoalFocusDetailsFromMap(
+  details: ScheduleActionDetails,
+  goalsById: Map<string, GoalRecord>,
+): ScheduleActionDetails {
+  if (details.kind !== "goal_focus") {
+    return details;
+  }
+
+  const latestGoal = goalsById.get(details.goal.id);
+
+  if (!latestGoal) {
+    return details;
+  }
+
+  return {
+    ...details,
+    goal: latestGoal,
+    focusArea: resolveGoalFocusArea(
+      latestGoal,
+      details.operation.focusId,
+      details.title,
+    ),
+  };
+}
+
+function refreshScheduleDetailsFromMaps(
+  details: ScheduleActionDetails,
+  goalsById: Map<string, GoalRecord>,
+  tasksById: Map<string, TaskRecord>,
+): ScheduleActionDetails {
+  if (details.kind === "task") {
+    const latestTask = tasksById.get(details.task.id);
+
+    return latestTask
+      ? {
+          ...details,
+          task: latestTask,
+        }
+      : details;
+  }
+
+  return refreshGoalFocusDetailsFromMap(details, goalsById);
+}
+
 async function applyScheduleDetailsToCalendar(
   userId: string,
   tokens: Credentials,
   details: ScheduleActionDetails,
   db: ReturnType<typeof getWorkspaceExecutor>,
+  options?: { sourceProposalId?: string | null | undefined },
 ) {
   if (details.kind === "goal_focus") {
-    const applied = await applyGoalFocusOperationToCalendar(tokens, details.operation);
-    return applied ? { type: "goal_focus" as const } : null;
+    const goal = await applyGoalFocusOperationToCalendar(
+      userId,
+      tokens,
+      details,
+      db,
+    );
+    return goal ? { type: "goal_focus" as const, goal } : null;
   }
 
   const task = await applyTaskScheduleOperationToCalendar(
@@ -1813,17 +2282,22 @@ async function applyScheduleDetailsToCalendar(
     details.task,
     details.operation,
     db,
+    options,
   );
 
   return task ? { type: "task" as const, task } : null;
 }
 
-async function applyTaskScheduleOperationToCalendar(
+export async function applyTaskScheduleOperationToCalendar(
   userId: string,
   tokens: Credentials,
   task: TaskRecord,
   operation: Extract<ScheduleProposalOperation, { type: "schedule_task" }>,
   db: ReturnType<typeof getWorkspaceExecutor>,
+  options?: {
+    sourceProposalId?: string | null | undefined;
+    calendarWriter?: CalendarEventWriter | undefined;
+  },
 ) {
   const startTime = parseRequiredIsoDate(operation.startTime);
   const endTime = parseRequiredIsoDate(operation.endTime);
@@ -1832,11 +2306,24 @@ async function applyTaskScheduleOperationToCalendar(
     return null;
   }
 
-  const calendarReference = parseCalendarReference(task.linkedCalendarEventId);
+  const isRecurringTask = task.recurrence !== null;
+  const recurringScheduledOccurrence = isRecurringTask
+    ? findScheduledTaskOccurrenceForScheduleOperation(task, operation, startTime)
+    : null;
+  const calendarReference = isRecurringTask
+    ? parseCalendarReference(
+        recurringScheduledOccurrence?.calendarEventId ?? null,
+      )
+    : parseCalendarReference(task.linkedCalendarEventId);
+  const calendarWriter = options?.calendarWriter ?? {
+    createEvent: createGoogleCalendarEvent,
+    updateEvent: updateGoogleCalendarEvent,
+  };
   let linkedCalendarEventId: string | null = task.linkedCalendarEventId;
+  let occurrenceCalendarEventId: string | null = null;
 
   if (calendarReference) {
-    const updatedEvent = await updateGoogleCalendarEvent(tokens, {
+    const updatedEvent = await calendarWriter.updateEvent(tokens, {
       eventId: calendarReference.eventId,
       calendarId: calendarReference.calendarId,
       title: operation.title,
@@ -1848,8 +2335,9 @@ async function applyTaskScheduleOperationToCalendar(
       calendarId: calendarReference.calendarId,
       eventId: updatedEvent.id ?? calendarReference.eventId,
     });
+    occurrenceCalendarEventId = linkedCalendarEventId;
   } else {
-    const createdEvent = await createGoogleCalendarEvent(tokens, {
+    const createdEvent = await calendarWriter.createEvent(tokens, {
       title: operation.title,
       description: operation.description,
       startTime,
@@ -1862,6 +2350,7 @@ async function applyTaskScheduleOperationToCalendar(
             eventId: createdEvent.id,
           })
         : task.linkedCalendarEventId;
+    occurrenceCalendarEventId = linkedCalendarEventId;
   }
 
   return patchTask(
@@ -1871,31 +2360,319 @@ async function applyTaskScheduleOperationToCalendar(
       title: operation.title,
       description: operation.description,
       status: "scheduled",
-      dueAt: startTime,
-      linkedCalendarEventId,
+      dueAt: isRecurringTask ? undefined : startTime,
+      linkedCalendarEventId: isRecurringTask
+        ? task.linkedCalendarEventId ?? linkedCalendarEventId
+        : linkedCalendarEventId,
+      recurrence: task.recurrence
+        ? recordTaskScheduledOccurrence({
+            recurrence: task.recurrence,
+            startTime,
+            endTime,
+            calendarEventId: occurrenceCalendarEventId,
+            sourceProposalId: options?.sourceProposalId ?? null,
+            replacesOccurrenceKey:
+              operation.occurrenceKey ??
+              getTaskOccurrenceKeyForScheduledOccurrence(
+                task.id,
+                recurringScheduledOccurrence,
+              ),
+          })
+        : undefined,
       scheduleIntent: "schedule_now",
     },
     db,
   );
 }
 
-async function applyGoalFocusOperationToCalendar(
-  tokens: Credentials,
-  operation: Extract<ScheduleProposalOperation, { type: "schedule_goal_focus" }>,
+export function recordTaskScheduledOccurrence(input: {
+  recurrence: TaskRecurrence;
+  startTime: Date;
+  endTime: Date;
+  calendarEventId: string | null;
+  sourceProposalId?: string | null | undefined;
+  replacesOccurrenceKey?: string | null | undefined;
+}): TaskRecurrence {
+  const dateKey = dateKeyFromDate(input.startTime);
+  const replacedDateKey = dateKeyFromTaskOccurrenceKey(
+    input.replacesOccurrenceKey,
+  );
+  const occurrence = {
+    dateKey,
+    startTime: input.startTime.toISOString(),
+    endTime: input.endTime.toISOString(),
+    calendarEventId: input.calendarEventId,
+    sourceProposalId: input.sourceProposalId ?? null,
+  };
+
+  return {
+    ...input.recurrence,
+    scheduledOccurrences: [
+      ...input.recurrence.scheduledOccurrences.filter(
+        (scheduledOccurrence) =>
+          scheduledOccurrence.dateKey !== dateKey &&
+          scheduledOccurrence.dateKey !== replacedDateKey,
+      ),
+      occurrence,
+    ].sort((left, right) => left.dateKey.localeCompare(right.dateKey)),
+  };
+}
+
+function findScheduledTaskOccurrenceForScheduleOperation(
+  task: TaskRecord,
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_task" }>,
+  operationStartTime: Date,
 ) {
-  const startTime = parseRequiredIsoDate(operation.startTime);
-  const endTime = parseRequiredIsoDate(operation.endTime);
+  const targetDateKey =
+    dateKeyFromTaskOccurrenceKey(operation.occurrenceKey, task.id) ??
+    dateKeyFromDate(operationStartTime);
+
+  return (
+    task.recurrence?.scheduledOccurrences.find(
+      (occurrence) => occurrence.dateKey === targetDateKey,
+    ) ?? null
+  );
+}
+
+function getTaskOccurrenceKeyForScheduledOccurrence(
+  taskId: string,
+  occurrence: TaskRecurrence["scheduledOccurrences"][number] | null,
+) {
+  return occurrence ? `${taskId}:${occurrence.dateKey}` : null;
+}
+
+function dateKeyFromTaskOccurrenceKey(
+  value: string | null | undefined,
+  taskId?: string,
+) {
+  if (!value) {
+    return null;
+  }
+
+  const dateKey = taskId
+    ? value.startsWith(`${taskId}:`)
+      ? value.slice(taskId.length + 1)
+      : null
+    : value.split(":").pop() ?? null;
+
+  return dateKey && /^\d{4}-\d{2}-\d{2}$/u.test(dateKey) ? dateKey : null;
+}
+
+function dateKeyFromDate(value: Date) {
+  return [
+    value.getFullYear(),
+    (value.getMonth() + 1).toString().padStart(2, "0"),
+    value.getDate().toString().padStart(2, "0"),
+  ].join("-");
+}
+
+async function applyGoalFocusOperationToCalendar(
+  userId: string,
+  tokens: Credentials,
+  details: ScheduleGoalFocusActionDetails,
+  db: ReturnType<typeof getWorkspaceExecutor>,
+) {
+  const startTime = parseRequiredIsoDate(details.operation.startTime);
+  const endTime = parseRequiredIsoDate(details.operation.endTime);
 
   if (!startTime || !endTime || endTime <= startTime) {
     return null;
   }
 
-  return createGoogleCalendarEvent(tokens, {
-    title: operation.title,
-    description: operation.description,
-    startTime,
-    endTime,
-  });
+  const existingCalendarReference = findScheduledGoalFocusCalendarReference(
+    details.goal.scheduleGuidance,
+    details.operation,
+  );
+  const calendarEvent = existingCalendarReference
+    ? await updateGoogleCalendarEvent(tokens, {
+        eventId: existingCalendarReference.eventId,
+        calendarId: existingCalendarReference.calendarId,
+        title: details.operation.title,
+        description: details.operation.description,
+        startTime,
+        endTime,
+      })
+    : await createGoogleCalendarEvent(tokens, {
+        title: details.operation.title,
+        description: details.operation.description,
+        startTime,
+        endTime,
+      });
+
+  return patchGoal(
+    {
+      userId,
+      goalId: details.goal.id,
+      scheduleGuidance: buildScheduleGuidanceWithScheduledGoalFocusBlock({
+        scheduleGuidance: details.goal.scheduleGuidance,
+        operation: details.operation,
+        calendarEvent,
+      }),
+    },
+    db,
+  );
+}
+
+function findScheduledGoalFocusCalendarReference(
+  scheduleGuidance: Record<string, unknown> | null | undefined,
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_goal_focus" }>,
+) {
+  const operationStartTime = parseRequiredIsoDate(operation.startTime);
+
+  if (!operationStartTime) {
+    return null;
+  }
+
+  for (const block of getScheduledFocusBlockRecords(
+    normalizeScheduleGuidanceRecord(scheduleGuidance)[
+      SCHEDULED_FOCUS_BLOCKS_GUIDANCE_KEY
+    ],
+  )) {
+    if (!scheduledFocusBlockMatchesOperationDate(block, operation, operationStartTime)) {
+      continue;
+    }
+
+    const calendarEventId = normalizeNullableString(block.calendarEventId);
+    const calendarId = normalizeNullableString(block.calendarId);
+
+    if (calendarEventId && calendarId) {
+      return {
+        eventId: calendarEventId,
+        calendarId,
+      };
+    }
+  }
+
+  return null;
+}
+
+function scheduledFocusBlockMatchesOperationDate(
+  block: Record<string, unknown>,
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_goal_focus" }>,
+  operationStartTime: Date,
+) {
+  const blockStartTime = parseRequiredIsoDate(
+    typeof block.startTime === "string" ? block.startTime : null,
+  );
+
+  if (!blockStartTime || dateKeyFromDate(blockStartTime) !== dateKeyFromDate(operationStartTime)) {
+    return false;
+  }
+
+  const blockFocusId = normalizeNullableString(block.focusId);
+  const operationFocusId = normalizeNullableString(operation.focusId);
+
+  if (blockFocusId || operationFocusId) {
+    return blockFocusId === operationFocusId;
+  }
+
+  return (
+    normalizeComparableTitle(String(block.title ?? "")) ===
+    normalizeComparableTitle(operation.title)
+  );
+}
+
+export function buildScheduleGuidanceWithScheduledGoalFocusBlock(input: {
+  scheduleGuidance?: Record<string, unknown> | null | undefined;
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_goal_focus" }>;
+  calendarEvent: Awaited<ReturnType<typeof createGoogleCalendarEvent>>;
+  now?: Date | undefined;
+}): Record<string, unknown> {
+  const baseGuidance = normalizeScheduleGuidanceRecord(input.scheduleGuidance);
+  const scheduledBlock = {
+    focusId: input.operation.focusId ?? null,
+    title: input.operation.title,
+    startTime: input.operation.startTime,
+    endTime: input.operation.endTime,
+    calendarEventId:
+      typeof input.calendarEvent.id === "string" ? input.calendarEvent.id : null,
+    calendarId:
+      typeof input.calendarEvent.sourceCalendarId === "string"
+        ? input.calendarEvent.sourceCalendarId
+        : null,
+    source: "productiv_schedule",
+    scheduledAt: (input.now ?? new Date()).toISOString(),
+  };
+  const existingBlocks = getScheduledFocusBlockRecords(
+    baseGuidance[SCHEDULED_FOCUS_BLOCKS_GUIDANCE_KEY],
+  ).filter(
+    (block) =>
+      !isSameScheduledFocusBlock(block, scheduledBlock) &&
+      !referencesSameScheduledCalendarEvent(block, scheduledBlock),
+  );
+
+  return {
+    ...baseGuidance,
+    [SCHEDULED_FOCUS_BLOCKS_GUIDANCE_KEY]: sortScheduledFocusBlocks([
+      ...existingBlocks,
+      scheduledBlock,
+    ]),
+  };
+}
+
+function referencesSameScheduledCalendarEvent(
+  left: Record<string, unknown>,
+  right: {
+    calendarEventId: string | null;
+    calendarId: string | null;
+  },
+) {
+  const leftEventId = normalizeNullableString(left.calendarEventId);
+  const leftCalendarId = normalizeNullableString(left.calendarId);
+
+  return (
+    !!leftEventId &&
+    !!leftCalendarId &&
+    leftEventId === right.calendarEventId &&
+    leftCalendarId === right.calendarId
+  );
+}
+
+function normalizeScheduleGuidanceRecord(
+  value: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return { ...value };
+}
+
+function getScheduledFocusBlockRecords(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+    : [];
+}
+
+function normalizeNullableString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function isSameScheduledFocusBlock(
+  left: Record<string, unknown>,
+  right: {
+    focusId: string | null;
+    title: string;
+    startTime: string;
+    endTime: string;
+  },
+) {
+  return (
+    normalizeNullableString(left.focusId) === right.focusId &&
+    normalizeComparableTitle(String(left.title ?? "")) ===
+      normalizeComparableTitle(right.title) &&
+    left.startTime === right.startTime &&
+    left.endTime === right.endTime
+  );
+}
+
+function sortScheduledFocusBlocks(blocks: Record<string, unknown>[]) {
+  return blocks.sort((left, right) =>
+    String(left.startTime ?? "").localeCompare(String(right.startTime ?? "")),
+  );
 }
 
 function buildScheduleProposalTitle(details: ScheduleActionDetails[]) {
@@ -1940,7 +2717,7 @@ function buildScheduleProposalSummary(
   return `${scheduleLine}. Conflicts: ${formatConflictList(conflicts)}.`;
 }
 
-function buildProposalConfirmationHint(
+export function buildProposalConfirmationHint(
   details: ScheduleActionDetails[],
   conflicts: SchedulingConflict[],
 ) {
@@ -1948,7 +2725,7 @@ function buildProposalConfirmationHint(
   const lastDetail = details[details.length - 1] ?? firstDetail;
 
   if (!firstDetail || !lastDetail) {
-    return "Reply with the missing work item and time window to revise it.";
+    return "Reply with the missing work item or constraints you want Productiv to use for a revised draft.";
   }
 
   const base =
@@ -1957,10 +2734,10 @@ function buildProposalConfirmationHint(
       : `Proposed ${details.length} blocks from ${firstDetail.startTime.toLocaleDateString()} to ${lastDetail.startTime.toLocaleDateString()}.`;
 
   if (conflicts.length === 0) {
-    return `${base} Reply to confirm it or ask for a different time.`;
+    return `${base} Use Yes, implement to apply it, or reply with what should change so Productiv can revise the draft.`;
   }
 
-  return `${base} It conflicts with ${formatConflictList(conflicts)}. Reply to confirm anyway or ask for a different time.`;
+  return `${base} It conflicts with ${formatConflictList(conflicts)}. Use Yes, implement to apply it anyway, or reply with what should change so Productiv can revise the draft.`;
 }
 
 function dedupeSchedulingConflicts(conflicts: SchedulingConflict[]) {
@@ -1985,6 +2762,628 @@ function isScheduleProposalAction(action: AssistantAction) {
   );
 }
 
+export function parseScheduleProposalRevisionFeedback(
+  message: string,
+  fallbackProposalId: string | null = null,
+): ScheduleProposalRevisionFeedback | null {
+  const match =
+    /\bfor\s+schedule\s+proposal\s+(?<proposalId>[a-z0-9_-]+),?\s+please\s+revise\s+it\s+based\s+on\s+this\s+feedback:\s*(?<feedback>.+)$/isu.exec(
+      message,
+    );
+  const proposalId = match?.groups?.proposalId?.trim();
+  const feedback = match?.groups?.feedback?.replace(/\s+/gu, " ").trim();
+
+  if (proposalId && feedback) {
+    return {
+      proposalId,
+      feedback,
+    };
+  }
+
+  const fallbackFeedback = message.replace(/\s+/gu, " ").trim();
+
+  if (
+    !fallbackProposalId ||
+    !fallbackFeedback ||
+    !isNaturalScheduleProposalRevisionFeedback(fallbackFeedback)
+  ) {
+    return null;
+  }
+
+  return {
+    proposalId: fallbackProposalId,
+    feedback: fallbackFeedback,
+  };
+}
+
+function isNaturalScheduleProposalRevisionFeedback(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (
+    /\b(confirm|approve|apply|yes|accept|reject|dismiss|cancel)\b/u.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    /\b(move|shift|push|place|put|reschedule|change|adjust|revise|redo|fix)\b.*\b(schedule|proposal|draft|plan|calendar|block|blocks|task|tasks|habit|routine|workout|study|focus|later|earlier|morning|afternoon|evening|night)\b/u.test(
+      normalized,
+    ) ||
+    /\b(too crowded|too packed|too full|too much|overwhelming|overloaded|lighter|less crowded|less packed|more realistic|buffer|buffers|break|breaks|breathing room|space|spaced out|gap|gaps|back-to-back|back to back)\b/u.test(
+      normalized,
+    ) ||
+    /\b(can you|please|no[, ]+)\b.*\b(later|earlier|morning|afternoon|evening|night|buffer|break|less|more space|move|change|adjust)\b/u.test(
+      normalized,
+    ) ||
+    /\b(can'?t|cannot|won'?t be able|not available|unavailable|busy|conflict)\b.*\b(schedule|proposal|draft|plan|calendar|block|blocks|time|slot|mornings?|afternoons?|evenings?|nights?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow)\b/u.test(
+      normalized,
+    ) ||
+    /\b(mornings?|afternoons?|evenings?|nights?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow)\b.*\b(blocked|off-limits|off limits|unavailable|busy|conflict)\b/u.test(
+      normalized,
+    ) ||
+    /\b(this|that|it|schedule|proposal|draft|plan|calendar)\b.*\b(doesn'?t work|does not work|won'?t work|will not work|isn'?t workable|is not workable|not realistic)\b/u.test(
+      normalized,
+    ) ||
+    /\b(need|want|have)\b.*\b(change|move|adjust|redo|revise)\b.*\b(today|tomorrow|this week|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/u.test(
+      normalized,
+    )
+  );
+}
+
+export function createScheduleProposalRevisionFeedbackEntry(input: {
+  feedback: string;
+  replacementProposalId?: string | null | undefined;
+  now?: Date | undefined;
+}) {
+  return {
+    type: "revision_requested",
+    at: (input.now ?? new Date()).toISOString(),
+    feedback: input.feedback,
+    replacementProposalId: input.replacementProposalId ?? null,
+  };
+}
+
+export function buildScheduleProposalRevisionHorizonOverride(
+  proposal: ScheduleProposalRecord | null,
+  proposalRevisionFeedback: ScheduleProposalRevisionFeedback | null = null,
+): SchedulingHorizonOverride | null {
+  if (!proposal || proposal.operations.length === 0) {
+    return null;
+  }
+
+  const operations = getProposalOperationsForRevisionFeedback(
+    proposal,
+    proposalRevisionFeedback,
+  );
+  const starts: Date[] = [];
+  const ends: Date[] = [];
+
+  for (const operation of operations) {
+    const startTime = parseRequiredIsoDate(operation.startTime);
+    const endTime = parseRequiredIsoDate(operation.endTime);
+
+    if (startTime && endTime && endTime > startTime) {
+      starts.push(startTime);
+      ends.push(endTime);
+    }
+  }
+
+  if (starts.length === 0 || ends.length === 0) {
+    return null;
+  }
+
+  const earliestStart = new Date(
+    Math.min(...starts.map((startTime) => startTime.getTime())),
+  );
+  const latestEnd = new Date(
+    Math.max(...ends.map((endTime) => endTime.getTime())),
+  );
+  const startTime = startOfDayDate(earliestStart);
+  const endTime = addDaysDate(startOfDayDate(latestEnd), 1);
+
+  if (endTime <= startTime) {
+    return null;
+  }
+
+  return {
+    startTime,
+    endTime,
+    source: buildScheduleProposalRevisionHorizonSource({
+      proposal,
+      proposalRevisionFeedback,
+      operationCount: operations.length,
+    }),
+  };
+}
+
+function buildScheduleProposalRevisionHorizonSource(input: {
+  proposal: ScheduleProposalRecord;
+  proposalRevisionFeedback: ScheduleProposalRevisionFeedback | null;
+  operationCount: number;
+}) {
+  const targetWeekdays = input.proposalRevisionFeedback
+    ? getRevisionFeedbackTargetWeekdays(input.proposalRevisionFeedback.feedback)
+    : [];
+
+  if (
+    targetWeekdays.length > 0 &&
+    input.operationCount < input.proposal.operations.length
+  ) {
+    return `schedule proposal ${input.proposal.id} ${targetWeekdays
+      .map(formatWeekdayName)
+      .join(", ")} feedback date range`;
+  }
+
+  return `schedule proposal ${input.proposal.id} date range`;
+}
+
+function getProposalOperationsForRevisionFeedback(
+  proposal: ScheduleProposalRecord,
+  proposalRevisionFeedback: ScheduleProposalRevisionFeedback | null,
+): ScheduleProposalOperation[] {
+  const targetWeekdays = proposalRevisionFeedback
+    ? getRevisionFeedbackTargetWeekdays(proposalRevisionFeedback.feedback)
+    : [];
+
+  if (targetWeekdays.length === 0) {
+    return proposal.operations;
+  }
+
+  const targetWeekdaySet = new Set(targetWeekdays);
+  const matchingOperations = proposal.operations.filter((operation) => {
+    const startTime = parseRequiredIsoDate(operation.startTime);
+    const weekday = startTime ? getWeekdayIndex(startTime) : null;
+
+    return weekday !== null && targetWeekdaySet.has(weekday);
+  });
+
+  return matchingOperations.length > 0 ? matchingOperations : proposal.operations;
+}
+
+function getRevisionFeedbackTargetWeekdays(feedback: string): WeekdayIndex[] {
+  const days = [
+    ["sunday", 0],
+    ["monday", 1],
+    ["tuesday", 2],
+    ["wednesday", 3],
+    ["thursday", 4],
+    ["friday", 5],
+    ["saturday", 6],
+  ] as const;
+  const normalized = feedback.toLowerCase();
+  const targetWeekdays = days
+    .filter(([dayName]) => new RegExp(`\\b${dayName}s?\\b`, "u").test(normalized))
+    .map(([, day]) => day);
+
+  return [...new Set(targetWeekdays)];
+}
+
+function getWeekdayIndex(date: Date): WeekdayIndex | null {
+  const day = date.getDay();
+
+  return day >= 0 && day <= 6 ? (day as WeekdayIndex) : null;
+}
+
+function formatWeekdayName(day: WeekdayIndex) {
+  return (
+    [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ][day] ?? "named day"
+  );
+}
+
+export function deriveSchedulingPreferenceCandidatesFromProposalFeedback(
+  feedback: string,
+): SchedulingPreferenceCandidate[] {
+  const candidates: SchedulingPreferenceCandidate[] = [];
+  const seen = new Set<string>();
+
+  if (hasDurableLighterScheduleFeedback(feedback)) {
+    candidates.push({
+      kind: "custom",
+      title: "Prefer lighter schedule drafts",
+      detail:
+        "Prefer generated schedule drafts with more breathing room, larger buffers, and a lighter non-urgent daily load.",
+      strength: "soft_preference",
+      confidence: "medium",
+      applicabilityScope: "global",
+      domain: null,
+      goalTitle: null,
+      activityTitle: null,
+      temporalScope: null,
+      evidence: feedback,
+    });
+  }
+
+  const unavailablePeriod = inferUnavailableWorkPeriodFromFeedback(feedback);
+
+  if (unavailablePeriod) {
+    candidates.push({
+      kind: "no_schedule_window",
+      title: `Avoid scheduling ${unavailablePeriod}s`,
+      detail: `Avoid generated schedule drafts during the ${unavailablePeriod} when possible.`,
+      strength: "soft_preference",
+      confidence: "medium",
+      applicabilityScope: "global",
+      domain: null,
+      goalTitle: null,
+      activityTitle: null,
+      temporalScope: unavailablePeriod,
+      evidence: feedback,
+    });
+  }
+
+  const patterns = [
+    /\b(?:keep|reserve|save|use|protect)\s+(?:the\s+)?(?<period>mornings?|afternoons?|evenings?)\s+(?:for|to)\s+(?<activity>[a-z][a-z0-9 -]{1,60}?)(?=[,.!?;]|$|\band\b|\bbut\b)/giu,
+    /\b(?:move|schedule|put|place)\s+(?<activity>[a-z][a-z0-9 -]{1,60}?)\s+(?:in|during|for|to)\s+(?:the\s+)?(?<period>mornings?|afternoons?|evenings?)(?=[,.!?;]|$|\band\b|\bbut\b)/giu,
+    /\b(?<activity>[a-z][a-z0-9 -]{1,60}?)\s+(?:works?\s+best|is\s+best|should\s+happen)\s+(?:in|during)\s+(?:the\s+)?(?<period>mornings?|afternoons?|evenings?)(?=[,.!?;]|$|\band\b|\bbut\b)/giu,
+    /\b(?<activity>[a-z][a-z0-9 -]{1,60}?)\s+(?:works?\s+better|is\s+better|are\s+better|feels?\s+better)\s+(?<relativePeriod>earlier|later)\b(?=[,.!?;]|$|\band\b|\bbut\b)/giu,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of feedback.matchAll(pattern)) {
+      const period =
+        normalizeFeedbackWorkPeriod(match.groups?.period) ??
+        normalizeRelativeFeedbackWorkPeriod(match.groups?.relativePeriod);
+      const activityTitle = normalizeFeedbackActivityTitle(match.groups?.activity);
+
+      if (!period || !activityTitle) {
+        continue;
+      }
+
+      const key = `${period}:${activityTitle.toLowerCase()}`;
+
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      candidates.push({
+        kind: "preferred_work_period",
+        title: `${activityTitle} ${period} preference`,
+        detail: `Prefer scheduling ${activityTitle} during the ${period}.`,
+        strength: "soft_preference",
+        confidence: "medium",
+        applicabilityScope: "activity",
+        domain: null,
+        goalTitle: null,
+        activityTitle,
+        temporalScope: period,
+        evidence: feedback,
+      });
+    }
+  }
+
+  return candidates.slice(0, 3);
+}
+
+function hasDurableLighterScheduleFeedback(feedback: string) {
+  return (
+    /\b(?:prefer|need|usually|generally|normally|always)\b.*\b(?:buffer|buffers|break|breaks|breathing room|space|spaced out|gap|gaps|less crowded|less packed|lighter|less intense|not so much)\b/iu.test(
+      feedback,
+    ) ||
+    /\b(?:too crowded|too packed|too full|too much|overwhelming|overloaded|lighter|less crowded|less packed|less intense|not so much|more realistic)\b/iu.test(
+      feedback,
+    ) ||
+    /\b(?:add|give|use|make|want|more)\b.*\b(?:buffer|buffers|break|breaks|breathing room|space|spaced out|gap|gaps)\b/iu.test(
+      feedback,
+    )
+  );
+}
+
+function normalizeRelativeFeedbackWorkPeriod(value: string | undefined) {
+  const normalized = value?.toLowerCase().trim();
+
+  if (normalized === "earlier") {
+    return "morning";
+  }
+
+  if (normalized === "later") {
+    return "afternoon";
+  }
+
+  return null;
+}
+
+function inferUnavailableWorkPeriodFromFeedback(feedback: string) {
+  const normalized = feedback.toLowerCase();
+
+  if (
+    !/\b(?:can'?t|cannot|won'?t be able|not available|unavailable|busy|conflict|avoid|no|blocked|off-limits|off limits)\b/iu.test(
+      normalized,
+    )
+  ) {
+    return null;
+  }
+
+  return normalizeFeedbackWorkPeriod(
+    /\b(?<period>mornings?|afternoons?|evenings?)\b/iu.exec(normalized)?.groups
+      ?.period,
+  );
+}
+
+function normalizeFeedbackWorkPeriod(value: string | undefined) {
+  const normalized = value?.toLowerCase().trim();
+
+  if (normalized === "morning" || normalized === "mornings") {
+    return "morning";
+  }
+
+  if (normalized === "afternoon" || normalized === "afternoons") {
+    return "afternoon";
+  }
+
+  if (normalized === "evening" || normalized === "evenings") {
+    return "evening";
+  }
+
+  return null;
+}
+
+function normalizeFeedbackActivityTitle(value: string | undefined) {
+  const cleaned = value
+    ?.replace(/\b(?:my|the|a|an)\b/giu, " ")
+    .replace(/^(?:and|but|then)\s+/iu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+
+  if (!cleaned || cleaned.length < 2) {
+    return null;
+  }
+
+  return cleaned
+    .split(" ")
+    .map((word) => capitalizeFirstCharacter(word.toLowerCase()))
+    .join(" ");
+}
+
+export function buildScheduleProposalActionsFromSchedulingAssemblyDraft(input: {
+  message: string;
+  modelActions: AssistantAction[];
+  draft: SchedulingAssemblyDraft;
+  proposalRevisionFeedback?: ScheduleProposalRevisionFeedback | null | undefined;
+}): AssistantAction[] {
+  if (
+    !shouldUseDeterministicScheduleProposalCompletion(
+      input.message,
+      input.draft.assignments.length,
+      input.proposalRevisionFeedback ?? null,
+    )
+  ) {
+    return [];
+  }
+
+  return getUncoveredSchedulingAssemblyAssignments(
+    input.draft.assignments,
+    input.modelActions,
+  ).flatMap((assignment) => {
+    if (
+      assignment.actionTypeHint === "propose_schedule_task" &&
+      assignment.taskId
+    ) {
+      return [
+        createAssistantAction({
+          type: "propose_schedule_task",
+          taskId: assignment.taskId,
+          occurrenceKey: assignment.occurrenceKey,
+          goalId: assignment.goalId,
+          title: assignment.title,
+          estimatedMinutes: assignment.durationMinutes,
+          startTime: assignment.startTime,
+          endTime: assignment.endTime,
+        }),
+      ];
+    }
+
+    if (
+      assignment.actionTypeHint === "propose_schedule_goal_focus" &&
+      assignment.goalId
+    ) {
+      return [
+        createAssistantAction({
+          type: "propose_schedule_goal_focus",
+          goalId: assignment.goalId,
+          focusId: assignment.focusId,
+          title: assignment.title,
+          estimatedMinutes: assignment.durationMinutes,
+          startTime: assignment.startTime,
+          endTime: assignment.endTime,
+        }),
+      ];
+    }
+
+    return [];
+  });
+}
+
+function getUncoveredSchedulingAssemblyAssignments(
+  assignments: SchedulingAssemblyAssignment[],
+  modelActions: AssistantAction[],
+) {
+  const proposalActions = modelActions.filter(isScheduleProposalAction);
+  const coveredAssignmentIndexes = new Set<number>();
+
+  for (const action of proposalActions) {
+    const matchingIndex = assignments.findIndex((assignment, index) => {
+      if (coveredAssignmentIndexes.has(index)) {
+        return false;
+      }
+
+      return proposalActionCoversAssignment(action, assignment);
+    });
+
+    if (matchingIndex !== -1) {
+      coveredAssignmentIndexes.add(matchingIndex);
+    }
+  }
+
+  return assignments.filter((_, index) => !coveredAssignmentIndexes.has(index));
+}
+
+function proposalActionCoversAssignment(
+  action: AssistantAction,
+  assignment: SchedulingAssemblyAssignment,
+) {
+  if (
+    action.type === "propose_schedule_task" &&
+    assignment.actionTypeHint === "propose_schedule_task"
+  ) {
+    if (
+      action.taskId
+        ? action.taskId !== assignment.taskId
+        : !proposalActionTitleMatchesAssignment(action, assignment)
+    ) {
+      return false;
+    }
+
+    return (
+      !action.occurrenceKey ||
+      !assignment.occurrenceKey ||
+      action.occurrenceKey === assignment.occurrenceKey
+    );
+  }
+
+  if (
+    action.type === "propose_schedule_goal_focus" &&
+    assignment.actionTypeHint === "propose_schedule_goal_focus"
+  ) {
+    const goalMatches = action.goalId
+      ? action.goalId === assignment.goalId
+      : proposalActionTitleMatchesAssignment(action, assignment);
+
+    if (!goalMatches) {
+      return false;
+    }
+
+    return action.focusId
+      ? action.focusId === assignment.focusId
+      : proposalActionTitleMatchesAssignment(action, assignment);
+  }
+
+  return false;
+}
+
+function proposalActionTitleMatchesAssignment(
+  action: AssistantAction,
+  assignment: SchedulingAssemblyAssignment,
+) {
+  const actionTitle = normalizeComparableTitle(action.title ?? "");
+  const assignmentTitle = normalizeComparableTitle(assignment.title);
+
+  return actionTitle.length > 0 && actionTitle === assignmentTitle;
+}
+
+export function buildScheduleAssemblyUnscheduledItemsSummary(
+  draft: SchedulingAssemblyDraft,
+) {
+  if (draft.unscheduledItems.length === 0) {
+    return null;
+  }
+
+  const visibleItems = draft.unscheduledItems.slice(0, 3);
+  const itemSummaries = visibleItems.map((item) => {
+    const title = item.title.trim() || "Untitled item";
+    const reason = item.reason.trim();
+
+    return reason ? `${title}: ${reason}` : title;
+  });
+  const remainingCount = draft.unscheduledItems.length - visibleItems.length;
+  const remainingSummary =
+    remainingCount > 0
+      ? ` I also left ${remainingCount} more item${remainingCount === 1 ? "" : "s"} out.`
+      : "";
+
+  return `I left ${draft.unscheduledItems.length === 1 ? "this item" : "these items"} out of the draft so the schedule stays realistic: ${itemSummaries.join("; ")}.${remainingSummary} You can tell me what to loosen, move, or prioritize and I'll revise it.`;
+}
+
+export function buildDeterministicScheduleProposalWarnings(input: {
+  deterministicProposalActions: AssistantAction[];
+  draft: SchedulingAssemblyDraft;
+}) {
+  if (input.deterministicProposalActions.length === 0) {
+    return [];
+  }
+
+  const unscheduledSummary = buildScheduleAssemblyUnscheduledItemsSummary(
+    input.draft,
+  );
+
+  return unscheduledSummary ? [unscheduledSummary] : [];
+}
+
+export function resolveGoalIdForTurnAction(input: {
+  actionGoalId: string | null;
+  turnGoals: Array<{ id: string }>;
+}) {
+  if (input.actionGoalId) {
+    return input.actionGoalId;
+  }
+
+  return input.turnGoals.length === 1 ? input.turnGoals[0]?.id ?? null : null;
+}
+
+function shouldUseDeterministicScheduleProposalCompletion(
+  message: string,
+  assignmentCount: number,
+  proposalRevisionFeedback: ScheduleProposalRevisionFeedback | null = null,
+) {
+  return (
+    assignmentCount > 0 &&
+    (proposalRevisionFeedback !== null || hasScheduleGenerationIntent(message))
+  );
+}
+
+function hasScheduleGenerationIntent(message: string) {
+  return (
+    parseScheduleProposalRevisionFeedback(message) !== null ||
+    /\b(generate|create|make|build|draft|plan|schedule|fill|put together)\b.*\b(schedule|calendar|day|week|today|tomorrow|weekend|blocks?|time)\b/iu.test(
+      message,
+    )
+  );
+}
+
+function createAssistantAction(
+  patch: Partial<AssistantAction> & Pick<AssistantAction, "type">,
+): AssistantAction {
+  return {
+    type: patch.type,
+    proposalId: patch.proposalId ?? null,
+    goalId: patch.goalId ?? null,
+    focusId: patch.focusId ?? null,
+    taskId: patch.taskId ?? null,
+    occurrenceKey: patch.occurrenceKey ?? null,
+    metricId: patch.metricId ?? null,
+    title: patch.title ?? null,
+    definition: patch.definition ?? null,
+    successCriteria: patch.successCriteria ?? [],
+    focusAreas: patch.focusAreas ?? [],
+    scheduleGuidance: patch.scheduleGuidance ?? null,
+    constraints: patch.constraints ?? [],
+    notes: patch.notes ?? null,
+    description: patch.description ?? null,
+    unitLabel: patch.unitLabel ?? null,
+    targetValue: patch.targetValue ?? null,
+    currentValue: patch.currentValue ?? null,
+    dueAt: patch.dueAt ?? null,
+    recurrence: patch.recurrence ?? null,
+    estimatedMinutes: patch.estimatedMinutes ?? null,
+    priorityRank: patch.priorityRank ?? null,
+    status: patch.status ?? null,
+    scheduleIntent: patch.scheduleIntent ?? null,
+    startTime: patch.startTime ?? null,
+    endTime: patch.endTime ?? null,
+    isActive: patch.isActive ?? null,
+  };
+}
+
 function isUnqualifiedProposalConfirmation(message: string) {
   const feedbackMatch = /\bfeedback:\s*(?<feedback>.+)$/iu.exec(message);
   const feedback = feedbackMatch?.groups?.feedback?.trim();
@@ -1998,33 +3397,129 @@ function isUnqualifiedProposalConfirmation(message: string) {
   );
 }
 
-function resolvePendingProposal(
-  proposalId: string | null,
-  pendingProposalsById: Map<string, ScheduleProposalRecord>,
-) {
+export async function resolvePendingProposal(input: {
+  userId: string;
+  proposalId: string | null;
+  pendingProposalsById: Map<string, ScheduleProposalRecord>;
+  loadScheduleProposalById?: (
+    userId: string,
+    proposalId: string,
+  ) => Promise<ScheduleProposalRecord | null>;
+}) {
+  const { pendingProposalsById, proposalId } = input;
+
   if (proposalId) {
-    return pendingProposalsById.get(proposalId) ?? null;
+    const cachedProposal = pendingProposalsById.get(proposalId);
+
+    if (cachedProposal) {
+      return cachedProposal.status === "draft" ? cachedProposal : null;
+    }
+
+    const loadedProposal = input.loadScheduleProposalById
+      ? await input.loadScheduleProposalById(input.userId, proposalId)
+      : null;
+
+    if (loadedProposal?.status !== "draft") {
+      return null;
+    }
+
+    pendingProposalsById.set(loadedProposal.id, loadedProposal);
+    return loadedProposal;
   }
 
   const iterator = pendingProposalsById.values().next();
-  return iterator.done ? null : iterator.value;
+  return iterator.done || iterator.value.status !== "draft" ? null : iterator.value;
 }
 
-function shouldUsePlanningFlow(
+export async function resolveScheduleProposalForRevision(input: {
+  userId: string;
+  proposalId: string | null;
+  pendingProposalsById: Map<string, ScheduleProposalRecord>;
+  recentAppliedProposalsById: Map<string, ScheduleProposalRecord>;
+  loadScheduleProposalById?: (
+    userId: string,
+    proposalId: string,
+  ) => Promise<ScheduleProposalRecord | null>;
+}) {
+  if (!input.proposalId) {
+    return resolvePendingProposal(input);
+  }
+
+  const cachedDraftProposal = input.pendingProposalsById.get(input.proposalId);
+  if (cachedDraftProposal?.status === "draft") {
+    return cachedDraftProposal;
+  }
+
+  const cachedAppliedProposal = input.recentAppliedProposalsById.get(
+    input.proposalId,
+  );
+  if (cachedAppliedProposal?.status === "applied") {
+    return cachedAppliedProposal;
+  }
+
+  const loadedProposal = input.loadScheduleProposalById
+    ? await input.loadScheduleProposalById(input.userId, input.proposalId)
+    : null;
+
+  if (loadedProposal?.status === "draft") {
+    input.pendingProposalsById.set(loadedProposal.id, loadedProposal);
+    return loadedProposal;
+  }
+
+  if (loadedProposal?.status === "applied") {
+    input.recentAppliedProposalsById.set(loadedProposal.id, loadedProposal);
+    return loadedProposal;
+  }
+
+  return null;
+}
+
+function getDefaultDraftProposalId(
+  pendingProposalsById: Map<string, ScheduleProposalRecord>,
+) {
+  for (const proposal of pendingProposalsById.values()) {
+    if (proposal.status === "draft") {
+      return proposal.id;
+    }
+  }
+
+  return null;
+}
+
+function getDefaultRecentAppliedProposalId(proposals: ScheduleProposalRecord[]) {
+  return proposals.find((proposal) => proposal.operations.length > 0)?.id ?? null;
+}
+
+export function shouldUsePlanningFlow(
   artifact: Record<string, unknown>,
   goalCount: number,
   mode: AssistantTurnMode,
+  message: string,
 ) {
-  return goalCount === 0 && mode === "chat" && !artifact.planningGoalId;
+  const hasPlanningDraft =
+    artifact.planningDraftState !== null &&
+    artifact.planningDraftState !== undefined;
+
+  return (
+    goalCount === 0 &&
+    mode === "chat" &&
+    !artifact.planningGoalId &&
+    !hasMultipleOperationalIntents(message) &&
+    (hasPlanningDraft || hasGoalPlanningIntent(message))
+  );
 }
 
-function inferTurnMode(
+export function inferTurnMode(
   message: string,
   requestedMode: AssistantTurnMode | undefined,
   hasMetrics: boolean,
 ): AssistantTurnMode {
   if (requestedMode) {
     return requestedMode;
+  }
+
+  if (hasMultipleOperationalIntents(message)) {
+    return "chat";
   }
 
   if (
@@ -2043,6 +3538,95 @@ function inferTurnMode(
   }
 
   return "chat";
+}
+
+function hasMultipleOperationalIntents(message: string) {
+  const categories = getWorkspaceIntentCategories(message);
+
+  categories.delete("preference");
+
+  if (categories.has("reflection")) {
+    categories.delete("schedule");
+  }
+
+  return categories.size > 1;
+}
+
+function getWorkspaceIntentCategories(message: string) {
+  const categories = new Set<
+    | "goal"
+    | "task"
+    | "schedule"
+    | "habit"
+    | "work_log"
+    | "reflection"
+    | "preference"
+  >();
+
+  if (hasGoalPlanningIntent(message)) {
+    categories.add("goal");
+  }
+
+  if (
+    /\b(task|tasks|todo|to-do|reminder|errand|laundry|call|email|pay|submit|finish|draft)\b/iu.test(
+      message,
+    )
+  ) {
+    categories.add("task");
+  }
+
+  if (
+    /\b(schedule|calendar|block|timebox|reschedule|move|shift|next week|this week|tomorrow at|today at)\b/iu.test(
+      message,
+    )
+  ) {
+    categories.add("schedule");
+  }
+
+  if (
+    /\b(habit|routine|recurring|repeat|daily|weekly|weekdays?|weekends?|every|each)\b/iu.test(
+      message,
+    )
+  ) {
+    categories.add("habit");
+  }
+
+  if (
+    /(worked|studied|finished|completed|practiced|logged|spent|applied|submitted|answered|solved|read|ran|walked|lifted|did)\b/iu.test(message) &&
+    /\b\d+(\.\d+)?\b/u.test(message)
+  ) {
+    categories.add("work_log");
+  }
+
+  if (
+    /\b(reflect|reflection|retro|retrospective)\b/iu.test(message) ||
+    /\b(what worked|what didn't work|what did not work|got in the way)\b/iu.test(
+      message,
+    )
+  ) {
+    categories.add("reflection");
+  }
+
+  if (
+    /\b(prefer|preferred|avoid|usually|normally|always|never|best for me|don't like|do not like)\b/iu.test(
+      message,
+    )
+  ) {
+    categories.add("preference");
+  }
+
+  return categories;
+}
+
+function hasGoalPlanningIntent(message: string) {
+  return (
+    /\b(goal|goals|objective|focus areas?|focus blocks?|working toward|working towards|work toward|work towards|train for|prepare for|get better|improve|learn|build|launch|ship)\b/iu.test(
+      message,
+    ) ||
+    /\bi\s+(?:want|need|would like|am trying|['’]?m trying)\s+to\s+(?!add|schedule|move|reschedule|log|reflect|review|finish|complete)\b/iu.test(
+      message,
+    )
+  );
 }
 
 async function loadScheduleRelevantCalendarContext(input: {
@@ -2123,6 +3707,169 @@ function buildTaskSchedulingContext(
     .sort(compareTaskSchedulingContextItems);
 }
 
+export function buildSchedulingAssemblyInputsForTurn(input: {
+  tasks: TaskSchedulingContextItem[];
+  goals: GoalRecord[];
+  proposalRevisionFeedback: ScheduleProposalRevisionFeedback | null;
+  pendingProposalsById: Map<string, ScheduleProposalRecord>;
+  revisionSourceProposalsById?: Map<string, ScheduleProposalRecord> | undefined;
+}): {
+  tasks: SchedulingAssemblyTaskInput[];
+  goals: SchedulingAssemblyGoalInput[];
+} {
+  if (!input.proposalRevisionFeedback) {
+    return {
+      tasks: input.tasks,
+      goals: input.goals,
+    };
+  }
+
+  const sourceProposalsById =
+    input.revisionSourceProposalsById ?? input.pendingProposalsById;
+  const originalProposal = sourceProposalsById.get(
+    input.proposalRevisionFeedback.proposalId,
+  );
+
+  if (!originalProposal) {
+    return {
+      tasks: [],
+      goals: [],
+    };
+  }
+
+  const revisionOperations = getProposalOperationsForRevisionFeedback(
+    originalProposal,
+    input.proposalRevisionFeedback,
+  );
+  const proposalTaskIds = new Set<string>();
+  const proposalTaskOccurrenceKeysByTaskId = new Map<string, string[]>();
+  const proposalFocusIdsByGoalId = new Map<string, Set<string | null>>();
+
+  for (const operation of revisionOperations) {
+    if (operation.type === "schedule_task") {
+      proposalTaskIds.add(operation.taskId);
+
+      const occurrenceKey =
+        operation.occurrenceKey ??
+        getFallbackTaskOccurrenceKeyFromOperation(operation);
+
+      if (occurrenceKey) {
+        const occurrenceKeys =
+          proposalTaskOccurrenceKeysByTaskId.get(operation.taskId) ?? [];
+
+        if (!occurrenceKeys.includes(occurrenceKey)) {
+          occurrenceKeys.push(occurrenceKey);
+          proposalTaskOccurrenceKeysByTaskId.set(
+            operation.taskId,
+            occurrenceKeys,
+          );
+        }
+      }
+
+      continue;
+    }
+
+    if (operation.type !== "schedule_goal_focus") {
+      continue;
+    }
+
+    const focusIds =
+      proposalFocusIdsByGoalId.get(operation.goalId) ?? new Set<string | null>();
+    focusIds.add(operation.focusId);
+    proposalFocusIdsByGoalId.set(operation.goalId, focusIds);
+  }
+
+  const tasks = input.tasks
+    .filter((task) => proposalTaskIds.has(task.id))
+    .map((task) => {
+      const revisionOccurrenceKeys =
+        task.recurrence === null
+          ? []
+          : proposalTaskOccurrenceKeysByTaskId.get(task.id) ?? [];
+
+      return {
+        ...task,
+        ...(revisionOccurrenceKeys.length > 0
+          ? { revisionOccurrenceKeys }
+          : {}),
+        calendarStatus: "needs_scheduling" as const,
+        reason: "Task is being revised from a draft schedule proposal.",
+        matchedCalendarEvent: null,
+        pendingProposalId: null,
+      };
+    });
+  const goals = input.goals.flatMap((goal) => {
+    const proposalFocusIds = proposalFocusIdsByGoalId.get(goal.id);
+
+    if (!proposalFocusIds) {
+      return [];
+    }
+
+    const includeAllFocusAreas = proposalFocusIds.has(null);
+    const focusAreas = includeAllFocusAreas
+      ? goal.focusAreas
+      : goal.focusAreas.filter((focusArea) =>
+          proposalFocusIds.has(focusArea.id),
+        );
+
+    return focusAreas.length > 0
+      ? [
+          {
+            ...goal,
+            focusAreas,
+          },
+        ]
+      : [];
+  });
+
+  return {
+    tasks,
+    goals,
+  };
+}
+
+function getFallbackTaskOccurrenceKeyFromOperation(
+  operation: Extract<ScheduleProposalOperation, { type: "schedule_task" }>,
+) {
+  const startTime = parseRequiredIsoDate(operation.startTime);
+
+  return startTime ? `${operation.taskId}:${dateKeyFromDate(startTime)}` : null;
+}
+
+export function buildSchedulingAssemblyDraftForTurn(input: {
+  message: string;
+  candidateSlots: Parameters<typeof buildSchedulingAssemblyDraft>[0]["candidateSlots"];
+  tasks: TaskRecord[];
+  goals: GoalRecord[];
+  pendingScheduleProposals: ScheduleProposalRecord[];
+  calendarEvents: ScheduleCalendarEventContext[];
+  proposalRevisionFeedback: ScheduleProposalRevisionFeedback | null;
+  pendingProposalsById: Map<string, ScheduleProposalRecord>;
+  revisionSourceProposalsById?: Map<string, ScheduleProposalRecord> | undefined;
+  schedulingContext?: CompiledSchedulingContext | undefined;
+}) {
+  const taskSchedulingContext = buildTaskSchedulingContext(
+    input.tasks,
+    input.pendingScheduleProposals,
+    input.calendarEvents,
+  );
+  const schedulingAssemblyInputs = buildSchedulingAssemblyInputsForTurn({
+    tasks: taskSchedulingContext,
+    goals: input.goals,
+    proposalRevisionFeedback: input.proposalRevisionFeedback,
+    pendingProposalsById: input.pendingProposalsById,
+    revisionSourceProposalsById: input.revisionSourceProposalsById,
+  });
+
+  return buildSchedulingAssemblyDraft({
+    message: input.message,
+    candidateSlots: input.candidateSlots,
+    tasks: schedulingAssemblyInputs.tasks,
+    goals: schedulingAssemblyInputs.goals,
+    schedulingContext: input.schedulingContext,
+  });
+}
+
 function buildTaskSchedulingContextItem(
   task: TaskRecord,
   pendingScheduleProposals: ScheduleProposalRecord[],
@@ -2132,10 +3879,15 @@ function buildTaskSchedulingContextItem(
     task,
     pendingScheduleProposals,
   );
+  const matchedCalendarEvent = findCalendarEventForTask(task, calendarEvents);
+  const scheduledDateKeys = getScheduledDateKeysForTask(
+    task,
+    matchedCalendarEvent,
+  );
 
   if (pendingProposalId) {
     return {
-      ...baseTaskSchedulingContextItem(task),
+      ...baseTaskSchedulingContextItem(task, scheduledDateKeys),
       calendarStatus: "pending_proposal",
       reason: "Task already appears in a draft schedule proposal.",
       matchedCalendarEvent: null,
@@ -2143,11 +3895,19 @@ function buildTaskSchedulingContextItem(
     };
   }
 
-  const matchedCalendarEvent = findCalendarEventForTask(task, calendarEvents);
+  if (task.recurrence && task.scheduleIntent !== "someday") {
+    return {
+      ...baseTaskSchedulingContextItem(task, scheduledDateKeys),
+      calendarStatus: "needs_scheduling",
+      reason: "Recurring task should generate schedule occurrences inside the requested horizon.",
+      matchedCalendarEvent,
+      pendingProposalId: null,
+    };
+  }
 
   if (matchedCalendarEvent || task.linkedCalendarEventId) {
     return {
-      ...baseTaskSchedulingContextItem(task),
+      ...baseTaskSchedulingContextItem(task, scheduledDateKeys),
       calendarStatus: "scheduled",
       reason: matchedCalendarEvent
         ? "Task matches an included calendar event."
@@ -2157,13 +3917,17 @@ function buildTaskSchedulingContextItem(
     };
   }
 
+  const isReadyForScheduling =
+    task.scheduleIntent === "schedule_now" ||
+    (task.scheduleIntent !== "someday" && task.dueAt !== null);
+
   return {
-    ...baseTaskSchedulingContextItem(task),
-    calendarStatus: "needs_scheduling",
+    ...baseTaskSchedulingContextItem(task, scheduledDateKeys),
+    calendarStatus: isReadyForScheduling ? "needs_scheduling" : "not_requested",
     reason:
-      task.scheduleIntent === "schedule_now" || task.dueAt
+      isReadyForScheduling
         ? "Task has schedule intent or a due date but no matching calendar event."
-        : "Task is active and not represented on the calendar.",
+        : "Task is active but has no due date, recurrence, or explicit schedule-now intent.",
     matchedCalendarEvent: null,
     pendingProposalId: null,
   };
@@ -2171,6 +3935,7 @@ function buildTaskSchedulingContextItem(
 
 function baseTaskSchedulingContextItem(
   task: TaskRecord,
+  scheduledDateKeys: string[],
 ): Omit<
   TaskSchedulingContextItem,
   "calendarStatus" | "reason" | "matchedCalendarEvent" | "pendingProposalId"
@@ -2183,9 +3948,29 @@ function baseTaskSchedulingContextItem(
     priorityRank: task.priorityRank,
     estimatedMinutes: task.estimatedMinutes,
     dueAt: task.dueAt,
+    recurrence: task.recurrence,
+    scheduledDateKeys,
     scheduleIntent: task.scheduleIntent,
     linkedCalendarEventId: task.linkedCalendarEventId,
   };
+}
+
+function getScheduledDateKeysForTask(
+  task: TaskRecord,
+  matchedCalendarEvent: ScheduleCalendarEventContext | null,
+) {
+  const matchedStartDate =
+    matchedCalendarEvent?.start && !Number.isNaN(Date.parse(matchedCalendarEvent.start))
+      ? new Date(matchedCalendarEvent.start)
+      : null;
+  const dateKeys = [
+    ...(task.recurrence?.scheduledOccurrences.map(
+      (occurrence) => occurrence.dateKey,
+    ) ?? []),
+    ...(matchedStartDate ? [dateKeyFromDate(matchedStartDate)] : []),
+  ].filter((dateKey) => /^\d{4}-\d{2}-\d{2}$/u.test(dateKey));
+
+  return [...new Set(dateKeys)].sort();
 }
 
 function findPendingProposalIdForTask(
@@ -2257,6 +4042,7 @@ function compareTaskSchedulingContextItems(
     needs_scheduling: 0,
     pending_proposal: 1,
     scheduled: 2,
+    not_requested: 3,
   };
   const statusDifference =
     statusPriority[left.calendarStatus] - statusPriority[right.calendarStatus];
@@ -2297,14 +4083,6 @@ function titlesLikelyMatch(left: string, right: string) {
     leftTitle.includes(rightTitle) ||
     rightTitle.includes(leftTitle)
   );
-}
-
-function normalizeComparableTitle(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
 }
 
 function createEmptySideEffects(): AssistantSideEffects {
@@ -2366,8 +4144,9 @@ function buildGoalFocusAreasFromPlan(plan: GeneratedPlan): GoalFocusArea[] {
         title: normalizedTitle,
         description: focus.description,
         status: "active",
-        defaultDurationMinutes: null,
-        cadence: null,
+        ...inferGoalFocusSchedulingDefaults(
+          `${normalizedTitle} ${focus.description}`,
+        ),
       },
     ];
   });
@@ -2489,6 +4268,12 @@ function addDaysDate(date: Date, days: number) {
   return nextDate;
 }
 
+function startOfDayDate(date: Date) {
+  const nextDate = new Date(date);
+  nextDate.setHours(0, 0, 0, 0);
+  return nextDate;
+}
+
 function findTaskByTitle(
   tasksById: Map<string, TaskRecord>,
   title: string,
@@ -2528,15 +4313,6 @@ function resolveGoalFocusArea(
       (focus) => focus.title.trim().toLowerCase() === normalizedTitle,
     ) ?? null
   );
-}
-
-function createStableFocusId(title: string) {
-  return title
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48);
 }
 
 function encodeCalendarReference(input: {

@@ -1,14 +1,21 @@
 import { Text, View } from "react-native";
 import {
-  DEFAULT_GRID_HEIGHT,
-  HOURS,
+  CalendarTimeWindow,
+  getCalendarGridHeight,
   TIME_GUTTER_HEIGHT,
   TIME_GUTTER_WIDTH,
   timeToY,
 } from "../../layout/calendarLayout";
 import { formatLocaleHour } from "@/features/shared/utils/dateTime";
 
-export default function TimeGutters() {
+type TimeGuttersProps = {
+  timeWindow: CalendarTimeWindow;
+};
+
+export default function TimeGutters({ timeWindow }: TimeGuttersProps) {
+  const gridHeight = getCalendarGridHeight(timeWindow);
+  const hourCount = timeWindow.endHour - timeWindow.startHour;
+
   return (
     <View
       style={{
@@ -16,18 +23,20 @@ export default function TimeGutters() {
         left: 0,
         top: 0,
         width: TIME_GUTTER_WIDTH,
-        height: DEFAULT_GRID_HEIGHT,
+        height: gridHeight,
         backgroundColor: "#efe6d7",
       }}
     >
-      {Array.from({ length: HOURS }, (_, i) => {
+      {Array.from({ length: hourCount }, (_, i) => {
+        const hour = timeWindow.startHour + i;
+
         return (
           <View
-            key={i}
+            key={hour}
             style={{
               position: "absolute",
               left: 0,
-              top: timeToY(i),
+              top: timeToY(hour, 0, undefined, timeWindow.startHour),
               width: TIME_GUTTER_WIDTH,
               height: TIME_GUTTER_HEIGHT,
             }}
@@ -40,7 +49,7 @@ export default function TimeGutters() {
                 fontWeight: "600",
               }}
             >
-              {hourToString(i)}
+              {hourToString(hour)}
             </Text>
           </View>
         );
@@ -50,9 +59,9 @@ export default function TimeGutters() {
 }
 
 function hourToString(hour: number) {
-  if (hour < 0 || hour > 23) {
+  if (hour < 0 || hour > 24) {
     throw new Error(`Invalid hour: ${hour}`);
   }
 
-  return formatLocaleHour(hour);
+  return formatLocaleHour(hour % 24);
 }

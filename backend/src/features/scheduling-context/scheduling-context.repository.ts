@@ -87,13 +87,13 @@ export async function getOrCreateUserSchedulingContext(
   db: DatabaseExecutor = getSchedulingContextExecutor(),
 ): Promise<UserSchedulingContextRecord> {
   const contextRow = await getOrCreateSchedulingContextRow(userId, db);
-  const acceptedDerivedRules = await listSchedulingSuggestionRows(
+  const derivedRuleRows = await listSchedulingSuggestionRows(
     userId,
-    ["active"],
+    ["active", "suggested"],
     db,
   );
 
-  return mapUserSchedulingContext(contextRow, acceptedDerivedRules);
+  return mapUserSchedulingContext(contextRow, derivedRuleRows);
 }
 
 export async function patchUserSchedulingContext(
@@ -249,11 +249,17 @@ export async function dismissDerivedSchedulingSuggestion(
   userId: string,
   suggestionId: string,
   db: DatabaseExecutor = getSchedulingContextExecutor(),
-): Promise<SchedulingPreferenceRuleRecord | null> {
+): Promise<{
+  context: UserSchedulingContextRecord;
+  suggestion: SchedulingPreferenceRuleRecord | null;
+}> {
   const suggestion = await getSchedulingSuggestionRow(userId, suggestionId, db);
 
   if (!suggestion || suggestion.status !== "suggested") {
-    return null;
+    return {
+      context: await getOrCreateUserSchedulingContext(userId, db),
+      suggestion: null,
+    };
   }
 
   await db.query(
@@ -267,11 +273,17 @@ export async function dismissDerivedSchedulingSuggestion(
     [suggestionId, userId],
   );
 
-  return mapSchedulingSuggestion({
-    ...suggestion,
-    status: "dismissed",
-    updated_at: new Date(),
-  });
+  const context = await getOrCreateUserSchedulingContext(userId, db);
+  await upsertUserContextMemoryCache(userId, context, db);
+
+  return {
+    context,
+    suggestion: mapSchedulingSuggestion({
+      ...suggestion,
+      status: "dismissed",
+      updated_at: new Date(),
+    }),
+  };
 }
 
 export async function createScheduleReflection(
@@ -496,6 +508,7 @@ export async function createDerivedSchedulingSuggestionsFromCandidates(
       temporalScope: candidate.temporalScope,
       evidence: candidate.evidence,
     };
+    const contextPatch = buildContextPatchFromCandidate(candidate);
     const key = buildScopedSchedulingSuggestionKey({
       kind: candidate.kind,
       title,
@@ -529,8 +542,8 @@ export async function createDerivedSchedulingSuggestionsFromCandidates(
           $5,
           'suggested',
           $6,
-          '{}'::jsonb,
-          $7::jsonb
+          $7::jsonb,
+          $8::jsonb
         )
         returning
           id,
@@ -554,6 +567,7 @@ export async function createDerivedSchedulingSuggestionsFromCandidates(
         detail,
         candidate.strength,
         candidate.confidence,
+        JSON.stringify(contextPatch),
         JSON.stringify(metadata),
       ],
     );
@@ -585,6 +599,8 @@ export function buildCompiledSchedulingContext(
   const acceptedDerivedHabits = context.activeRules
     .filter((rule) => rule.source === "derived")
     .map((rule) => `${rule.title}: ${rule.detail}`.trim().replace(/:$/u, ""));
+  const tentativeDerivedPreferences = context.tentativeRules
+    .map((rule) => `${rule.title}: ${rule.detail}`.trim().replace(/:$/u, ""));
 
   return {
     workHours: context.workHours.filter((rule) => rule.enabled),
@@ -598,6 +614,7 @@ export function buildCompiledSchedulingContext(
     hardConstraints,
     softPreferences,
     acceptedDerivedHabits,
+    tentativeDerivedPreferences,
     promptSummary: context.compiledSummary,
   };
 }
@@ -880,7 +897,7 @@ async function syncDerivedSuggestionsFromNotes(
 
 function mapUserSchedulingContext(
   row: UserSchedulingContextRow,
-  acceptedDerivedRules: SchedulingSuggestionRow[],
+  derivedRuleRows: SchedulingSuggestionRow[],
 ): UserSchedulingContextRecord {
   const workHours = normalizeWorkHours(row.work_hours);
   const noScheduleWindows = normalizeNoScheduleWindows(row.no_schedule_windows);
@@ -894,9 +911,9 @@ function mapUserSchedulingContext(
   const preferredWorkPeriods = normalizePreferredWorkPeriods(row.preferred_work_periods);
   const recoveryDays = normalizeRecoveryDays(row.recovery_days);
   const additionalNotes = row.additional_notes.trim();
-  const derivedRules = acceptedDerivedRules
-    .map(mapSchedulingSuggestion)
-    .filter(shouldIncludeAcceptedDerivedRule);
+  const mappedDerivedRules = derivedRuleRows.map(mapSchedulingSuggestion);
+  const derivedRules = mappedDerivedRules.filter(shouldIncludeAcceptedDerivedRule);
+  const tentativeRules = mappedDerivedRules.filter(shouldIncludeTentativeDerivedRule);
 
   const syntheticRules = buildSyntheticUserRules({
     workHours,
@@ -917,6 +934,7 @@ function mapUserSchedulingContext(
     recoveryDays,
     additionalNotes,
     derivedRules,
+    tentativeRules,
   });
 
   return {
@@ -929,6 +947,7 @@ function mapUserSchedulingContext(
     recoveryDays,
     additionalNotes,
     activeRules: [...syntheticRules, ...derivedRules],
+    tentativeRules,
     compiledSummary,
     updatedAt: row.updated_at.toISOString(),
   };
@@ -1258,6 +1277,7 @@ function buildCompiledSummary(input: {
   recoveryDays: SchedulingDayOfWeek[];
   additionalNotes: string;
   derivedRules: SchedulingPreferenceRuleRecord[];
+  tentativeRules: SchedulingPreferenceRuleRecord[];
 }) {
   const parts: string[] = [];
   const enabledWorkHours = input.workHours.filter((rule) => rule.enabled);
@@ -1316,6 +1336,14 @@ function buildCompiledSummary(input: {
   if (input.derivedRules.length > 0) {
     parts.push(
       `Accepted derived habits: ${input.derivedRules
+        .map(formatDerivedRuleForSummary)
+        .join(", ")}.`,
+    );
+  }
+
+  if (input.tentativeRules.length > 0) {
+    parts.push(
+      `Tentative learned preferences from recent feedback: ${input.tentativeRules
         .map(formatDerivedRuleForSummary)
         .join(", ")}.`,
     );
@@ -1382,6 +1410,80 @@ function buildScopedSchedulingSuggestionKey(input: {
     normalizeDedupeValue(getMetadataString(input.metadata, "activityTitle") ?? ""),
     normalizeDedupeValue(getMetadataString(input.metadata, "temporalScope") ?? ""),
   ].join(":");
+}
+
+function buildContextPatchFromCandidate(
+  candidate: SchedulingPreferenceCandidate,
+): Record<string, unknown> {
+  const notes = [
+    candidate.title,
+    candidate.detail,
+    candidate.evidence ?? "",
+    candidate.temporalScope ?? "",
+  ]
+    .join(" ")
+    .trim();
+
+  if (candidate.kind === "work_hours") {
+    const weekdayWorkHours = inferWeekdayWorkHoursFromNotes(notes);
+
+    if (weekdayWorkHours) {
+      return {
+        workHours: createDefaultWorkHours().map((rule) =>
+          rule.dayOfWeek >= 1 && rule.dayOfWeek <= 5
+            ? {
+                ...rule,
+                enabled: true,
+                startTime: weekdayWorkHours.startTime,
+                endTime: weekdayWorkHours.endTime,
+              }
+            : rule,
+        ),
+      };
+    }
+  }
+
+  if (candidate.kind === "no_schedule_window") {
+    const noScheduleWindow = inferNoScheduleWindowFromNotes(notes);
+
+    if (noScheduleWindow) {
+      return {
+        noScheduleWindows: [noScheduleWindow],
+      };
+    }
+  }
+
+  if (candidate.kind === "sleep_window") {
+    const sleepWindow = inferSleepWindowFromNotes(notes);
+
+    if (sleepWindow) {
+      return {
+        sleepWindow,
+      };
+    }
+  }
+
+  if (candidate.kind === "latest_work_end") {
+    const maxWorkEndTime = inferLatestWorkEndTimeFromNotes(notes);
+
+    if (maxWorkEndTime) {
+      return {
+        maxWorkEndTime,
+      };
+    }
+  }
+
+  if (candidate.kind === "preferred_focus_block") {
+    const preferredFocusBlockMinutes = inferFocusBlockMinutesFromNotes(notes);
+
+    if (preferredFocusBlockMinutes) {
+      return {
+        preferredFocusBlockMinutes,
+      };
+    }
+  }
+
+  return {};
 }
 
 function shouldCreateDerivedSuggestionFromCandidate(
@@ -1471,7 +1573,7 @@ function inferFocusBlockMinutesFromNotes(notes: string) {
 }
 
 function inferWeekdayWorkHoursFromNotes(notes: string) {
-  if (!/weekday/i.test(notes)) {
+  if (!hasWeekdayWorkHoursCue(notes)) {
     return null;
   }
 
@@ -1497,6 +1599,117 @@ function inferWeekdayWorkHoursFromNotes(notes: string) {
   );
 
   if (!startTime || !endTime || toMinutes(endTime) <= toMinutes(startTime)) {
+    return null;
+  }
+
+  return {
+    startTime,
+    endTime,
+  };
+}
+
+function inferNoScheduleWindowFromNotes(notes: string): SchedulingTimeWindow | null {
+  const dayOfWeek = inferDayOfWeekFromNotes(notes);
+
+  if (dayOfWeek === null) {
+    return null;
+  }
+
+  const match = notes.match(
+    /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const startTime = normalizeImplicitMeridiemTime(
+    match[1],
+    match[2],
+    match[3],
+    "am",
+  );
+  const endTime = normalizeImplicitMeridiemTime(
+    match[4],
+    match[5],
+    match[6],
+    "pm",
+  );
+
+  if (!startTime || !endTime || toMinutes(endTime) <= toMinutes(startTime)) {
+    return null;
+  }
+
+  const label = inferNoScheduleWindowLabel(notes);
+
+  return {
+    id: `derived-${dayOfWeek}-${startTime.replace(":", "")}-${endTime.replace(":", "")}`,
+    dayOfWeek,
+    startTime,
+    endTime,
+    label,
+  };
+}
+
+function inferDayOfWeekFromNotes(notes: string): SchedulingDayOfWeek | null {
+  const normalized = notes.toLowerCase();
+  const days = [
+    ["sunday", 0],
+    ["monday", 1],
+    ["tuesday", 2],
+    ["wednesday", 3],
+    ["thursday", 4],
+    ["friday", 5],
+    ["saturday", 6],
+  ] as const;
+
+  return (
+    days.find(([dayName]) => new RegExp(`\\b${dayName}s?\\b`, "u").test(normalized))?.[1] ??
+    null
+  );
+}
+
+function inferNoScheduleWindowLabel(notes: string) {
+  const label = /\b(class|lecture|lab|meeting|appointment|therapy|commute|practice|lesson|school|college|workshop|seminar|standup|shift)\b/iu.exec(
+    notes,
+  )?.[1];
+
+  return label ? label.charAt(0).toUpperCase() + label.slice(1).toLowerCase() : "No-schedule";
+}
+
+function hasWeekdayWorkHoursCue(notes: string) {
+  return /\b(?:weekday|weekdays|monday\s*(?:-|to|through|thru)\s*friday|mon\s*(?:-|to|through|thru)\s*fri|work\s+hours|working\s+hours|office\s+hours|office|job|i\s+work)\b/i.test(
+    notes,
+  );
+}
+
+function inferSleepWindowFromNotes(notes: string): SleepWindow | null {
+  if (!/\b(?:sleep|bedtime|bed time|asleep|go to bed|wake up|waking up)\b/i.test(notes)) {
+    return null;
+  }
+
+  const match = notes.match(
+    /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const startTime = normalizeImplicitMeridiemTime(
+    match[1],
+    match[2],
+    match[3],
+    "pm",
+  );
+  const endTime = normalizeImplicitMeridiemTime(
+    match[4],
+    match[5],
+    match[6],
+    "am",
+  );
+
+  if (!startTime || !endTime || startTime === endTime) {
     return null;
   }
 
@@ -1585,6 +1798,26 @@ function shouldIncludeAcceptedDerivedRule(rule: SchedulingPreferenceRuleRecord) 
   return Object.keys(rule.contextPatch).length === 0 || rule.kind === "custom";
 }
 
+function shouldIncludeTentativeDerivedRule(rule: SchedulingPreferenceRuleRecord) {
+  if (
+    rule.status !== "suggested" ||
+    rule.source !== "derived" ||
+    rule.confidence === "low"
+  ) {
+    return false;
+  }
+
+  if (Object.keys(rule.contextPatch).length > 0) {
+    return (
+      rule.kind === "work_hours" ||
+      rule.kind === "no_schedule_window" ||
+      rule.kind === "sleep_window"
+    );
+  }
+
+  return rule.kind === "custom" || rule.kind === "preferred_work_period";
+}
+
 function createDefaultWorkHours(): WorkHoursRule[] {
   return Array.from({ length: 7 }, (_, dayOfWeek) => ({
     dayOfWeek: dayOfWeek as SchedulingDayOfWeek,
@@ -1664,6 +1897,38 @@ function normalizeNoScheduleWindows(value: unknown): SchedulingTimeWindow[] {
       },
     ];
   });
+}
+
+function mergeNoScheduleWindows(
+  existingWindows: SchedulingTimeWindow[],
+  incomingWindows: SchedulingTimeWindow[],
+) {
+  const windowsByKey = new Map<string, SchedulingTimeWindow>();
+
+  for (const window of [...existingWindows, ...incomingWindows]) {
+    windowsByKey.set(getNoScheduleWindowMergeKey(window), window);
+  }
+
+  return Array.from(windowsByKey.values()).sort((left, right) => {
+    if (left.dayOfWeek !== right.dayOfWeek) {
+      return left.dayOfWeek - right.dayOfWeek;
+    }
+
+    if (left.startTime !== right.startTime) {
+      return left.startTime.localeCompare(right.startTime);
+    }
+
+    return left.endTime.localeCompare(right.endTime);
+  });
+}
+
+function getNoScheduleWindowMergeKey(window: SchedulingTimeWindow) {
+  return [
+    window.dayOfWeek,
+    window.startTime,
+    window.endTime,
+    window.label.trim().toLowerCase(),
+  ].join(":");
 }
 
 function normalizeSleepWindow(value: unknown): SleepWindow | null {
@@ -1814,7 +2079,10 @@ function applyContextPatchToRow(
   }
 
   if ("noScheduleWindows" in patch) {
-    nextPatch.noScheduleWindows = normalizeNoScheduleWindows(patch.noScheduleWindows);
+    nextPatch.noScheduleWindows = mergeNoScheduleWindows(
+      normalizeNoScheduleWindows(row.no_schedule_windows),
+      normalizeNoScheduleWindows(patch.noScheduleWindows),
+    );
   }
 
   if ("sleepWindow" in patch) {

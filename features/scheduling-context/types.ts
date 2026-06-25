@@ -102,6 +102,7 @@ export type UserSchedulingContext = {
   recoveryDays: SchedulingDayOfWeek[];
   additionalNotes: string;
   activeRules: SchedulingPreferenceRule[];
+  tentativeRules: SchedulingPreferenceRule[];
   compiledSummary: string;
   updatedAt: string;
 };

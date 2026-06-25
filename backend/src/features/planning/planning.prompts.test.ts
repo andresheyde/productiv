@@ -47,15 +47,20 @@ test("planning instructions stay focused on fast goal intake", () => {
 
   assert.match(instructions, /fast planning intake/u);
   assert.match(instructions, /concrete medium-term outcome/u);
-  assert.match(instructions, /only user-stated activities/u);
-  assert.match(instructions, /What things do you need to do/u);
+  assert.match(instructions, /concrete schedulable thing/u);
+  assert.match(instructions, /Productiv-inferred starter activities/u);
+  assert.match(instructions, /infer a cautious starter focus plan/u);
   assert.match(instructions, /losing fat, building strength/u);
-  assert.match(instructions, /help choosing/u);
+  assert.match(instructions, /shipping a project/u);
+  assert.match(instructions, /Deep work/u);
+  assert.match(instructions, /instead of asking the user to design/u);
+  assert.match(instructions, /choose a short starter set/u);
   assert.match(instructions, /different ways they need to spend time/u);
   assert.match(instructions, /Do not require barrier analysis/u);
   assert.match(instructions, /later reflection data/u);
   assert.match(instructions, /Ask one focused question at a time/u);
   assert.match(instructions, /Never tell the user a goal was created/u);
+  assert.match(instructions, /Productiv-inferred goal-supporting activity/u);
   assert.match(instructions, /status to plan_ready/u);
   assert.match(instructions, /schedulingPreferenceCandidates/u);
   assert.match(instructions, /goal or activity scope/u);

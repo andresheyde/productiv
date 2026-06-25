@@ -1,7 +1,8 @@
 import { isWithinInterval } from "date-fns";
 import { View } from "react-native";
 import {
-  DEFAULT_GRID_HEIGHT,
+  CalendarTimeWindow,
+  getCalendarGridHeight,
   TIME_GUTTER_WIDTH,
 } from "../../layout/calendarLayout";
 import { CalendarEvent } from "../../types";
@@ -17,6 +18,7 @@ type GridCanvasProps = {
   rightDate: Date;
   today: Date;
   columnWidth: number;
+  timeWindow: CalendarTimeWindow;
   events: CalendarEvent[];
   selectedEvent: CalendarEvent | null;
   onEventBlockPress: (arg0: CalendarEvent) => void;
@@ -31,6 +33,7 @@ export default function GridCanvas({
   rightDate,
   today,
   columnWidth,
+  timeWindow,
   events,
   selectedEvent,
   onEventBlockPress,
@@ -38,15 +41,17 @@ export default function GridCanvas({
   onEventsLayerLongPressBegin,
   onEventsLayerLongPressEnd,
 }: GridCanvasProps) {
+  const gridHeight = getCalendarGridHeight(timeWindow);
+
   return (
     <View
       style={{
         position: "relative",
-        height: DEFAULT_GRID_HEIGHT,
+        height: gridHeight,
         backgroundColor: "#fffdf8",
       }}
     >
-      <TimeGutters />
+      <TimeGutters timeWindow={timeWindow} />
       <View
         style={{
           position: "absolute",
@@ -56,13 +61,14 @@ export default function GridCanvas({
           bottom: 0,
         }}
       >
-        <HourLines />
+        <HourLines timeWindow={timeWindow} />
         <ColumnDividers numDays={numDays} columnWidth={columnWidth} />
         <EventsLayer
           events={events}
           leftDate={leftDate}
           numDays={numDays}
           columnWidth={columnWidth}
+          timeWindow={timeWindow}
           selectedEvent={selectedEvent}
           onEventBlockPress={onEventBlockPress}
           onEventsLayerEmptyPress={onEventsLayerEmptyPress}
@@ -77,6 +83,7 @@ export default function GridCanvas({
             currentTime={today}
             leftDate={leftDate}
             columnWidth={columnWidth}
+            timeWindow={timeWindow}
           />
         )}
       </View>

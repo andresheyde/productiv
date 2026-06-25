@@ -243,6 +243,11 @@ export default function TasksScreen() {
                 <TaskChip
                   label={`Scheduling: ${formatScheduleIntent(task.scheduleIntent)}`}
                 />
+                {task.recurrence ? (
+                  <TaskChip
+                    label={`Repeats: ${formatTaskRecurrence(task.recurrence)}`}
+                  />
+                ) : null}
               </View>
 
               <View style={{ gap: 6 }}>
@@ -266,6 +271,15 @@ export default function TasksScreen() {
                     ? `${task.estimatedMinutes} minutes`
                     : "Not set"}
                 </Text>
+                {task.recurrence?.sourceText ? (
+                  <Text
+                    style={{
+                      color: "#5a6762",
+                    }}
+                  >
+                    Repeat source: {task.recurrence.sourceText}
+                  </Text>
+                ) : null}
               </View>
 
               {task.description ? (
@@ -482,6 +496,33 @@ function formatScheduleIntent(intent: Task["scheduleIntent"]) {
     case "unscheduled":
       return "Track only";
   }
+}
+
+function formatTaskRecurrence(recurrence: Task["recurrence"]) {
+  if (!recurrence) {
+    return "Does not repeat";
+  }
+
+  if (recurrence.frequency === "weekly" && recurrence.daysOfWeek.length > 0) {
+    return `Weekly ${recurrence.daysOfWeek
+      .map(formatDayOfWeek)
+      .join(", ")}`;
+  }
+
+  switch (recurrence.frequency) {
+    case "daily":
+      return "Daily";
+    case "weekly":
+      return "Weekly";
+    case "monthly":
+      return "Monthly";
+    case "custom":
+      return "Custom";
+  }
+}
+
+function formatDayOfWeek(dayOfWeek: number) {
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayOfWeek] ?? "Day";
 }
 
 const singleLineInputStyle = {

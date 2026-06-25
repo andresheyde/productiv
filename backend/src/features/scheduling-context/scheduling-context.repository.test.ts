@@ -2,23 +2,42 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { QueryResult, QueryResultRow } from "pg";
 
-import { createDerivedSchedulingSuggestionsFromCandidates } from "./scheduling-context.repository.ts";
+import {
+  buildCompiledSchedulingContext,
+  createDerivedSchedulingSuggestionsFromCandidates,
+  dismissDerivedSchedulingSuggestion,
+  getOrCreateUserSchedulingContext,
+} from "./scheduling-context.repository.ts";
 import type { SchedulingPreferenceCandidate } from "./scheduling-context.types.ts";
 
 class FakeSchedulingDb {
+  contextRow: QueryResultRow = {
+    user_id: "user-1",
+    work_hours: [],
+    no_schedule_windows: [],
+    sleep_window: null,
+    max_work_end_time: null,
+    preferred_focus_block_minutes: null,
+    preferred_work_periods: [],
+    recovery_days: [],
+    additional_notes: "",
+    updated_at: new Date("2026-06-20T12:00:00.000Z"),
+  };
   insertedRows: QueryResultRow[] = [];
   existingRows: QueryResultRow[] = [];
+  memoryUpsertCount = 0;
 
   async query<T extends QueryResultRow>(
     text: string,
     params?: unknown[],
   ): Promise<QueryResult<T>> {
     if (/from scheduling_preference_suggestions/u.test(text)) {
-      return queryResult(this.existingRows as T[]);
+      return queryResult(this.getSchedulingSuggestionRows(text, params) as T[]);
     }
 
     if (/insert into scheduling_preference_suggestions/u.test(text)) {
-      const metadata = parseJsonObject(params?.[6]);
+      const contextPatch = parseJsonObject(params?.[6]);
+      const metadata = parseJsonObject(params?.[7]);
       const row = {
         id: `suggestion-${this.insertedRows.length + 1}`,
         user_id: params?.[0],
@@ -29,7 +48,7 @@ class FakeSchedulingDb {
         strength: params?.[4],
         status: "suggested",
         confidence: params?.[5],
-        context_patch: {},
+        context_patch: contextPatch,
         metadata,
         created_at: new Date("2026-06-20T12:00:00.000Z"),
         updated_at: new Date("2026-06-20T12:00:00.000Z"),
@@ -39,7 +58,59 @@ class FakeSchedulingDb {
       return queryResult([row] as unknown as T[]);
     }
 
+    if (/update scheduling_preference_suggestions/u.test(text)) {
+      const suggestionId = params?.[0];
+      const userId = params?.[1];
+
+      this.existingRows = this.existingRows.map((row) =>
+        row.id === suggestionId && row.user_id === userId
+          ? {
+              ...row,
+              status: "dismissed",
+              updated_at: new Date("2026-06-20T13:00:00.000Z"),
+            }
+          : row,
+      );
+
+      return queryResult([] as T[]);
+    }
+
+    if (/insert into user_scheduling_contexts/u.test(text)) {
+      return queryResult([] as T[]);
+    }
+
+    if (/from user_scheduling_contexts/u.test(text)) {
+      return queryResult([this.contextRow] as T[]);
+    }
+
+    if (/insert into user_context_memory/u.test(text)) {
+      this.memoryUpsertCount += 1;
+      return queryResult([] as T[]);
+    }
+
     throw new Error(`Unexpected query: ${text}`);
+  }
+
+  private getSchedulingSuggestionRows(text: string, params?: unknown[]) {
+    if (/where id = \$1 and user_id = \$2/u.test(text)) {
+      const suggestionId = params?.[0];
+      const userId = params?.[1];
+
+      return this.existingRows.filter(
+        (row) => row.id === suggestionId && row.user_id === userId,
+      );
+    }
+
+    if (/status = any\(\$2::text\[\]\)/u.test(text)) {
+      const userId = params?.[0];
+      const statuses = Array.isArray(params?.[1]) ? params[1] : [];
+
+      return this.existingRows.filter(
+        (row) => row.user_id === userId && statuses.includes(row.status),
+      );
+    }
+
+    return this.existingRows;
   }
 }
 
@@ -105,6 +176,88 @@ test("createDerivedSchedulingSuggestionsFromCandidates preserves applicability s
   assert.equal(suggestions[1]?.metadata.applicabilityScope, "global");
   assert.equal(suggestions[1]?.metadata.goalId, null);
   assert.equal(db.insertedRows.length, 2);
+});
+
+test("createDerivedSchedulingSuggestionsFromCandidates stores context patches for concrete availability", async () => {
+  const db = new FakeSchedulingDb();
+  const suggestions = await createDerivedSchedulingSuggestionsFromCandidates(
+    {
+      userId: "user-1",
+      candidates: [
+        {
+          kind: "work_hours",
+          title: "Protect weekday work hours",
+          detail: "I work weekdays 9am-5pm.",
+          strength: "hard_constraint",
+          confidence: "high",
+          applicabilityScope: "global",
+          domain: null,
+          goalTitle: null,
+          activityTitle: null,
+          temporalScope: "weekdays",
+          evidence: "I work weekdays 9am-5pm.",
+        },
+        {
+          kind: "sleep_window",
+          title: "Protect sleep",
+          detail: "I sleep nightly from 11pm-7am.",
+          strength: "hard_constraint",
+          confidence: "high",
+          applicabilityScope: "global",
+          domain: null,
+          goalTitle: null,
+          activityTitle: null,
+          temporalScope: "nightly",
+          evidence: "I sleep 11pm-7am.",
+        },
+        {
+          kind: "no_schedule_window",
+          title: "Protect Tuesday class",
+          detail: "I have class every Tuesday 8am-11am.",
+          strength: "hard_constraint",
+          confidence: "high",
+          applicabilityScope: "global",
+          domain: null,
+          goalTitle: null,
+          activityTitle: null,
+          temporalScope: "Tuesday",
+          evidence: "I have class Tuesday 8am-11am.",
+        },
+      ],
+      origin: "assistant_turn",
+    },
+    db,
+  );
+  const workHoursPatch = suggestions[0]?.contextPatch.workHours as
+    | Array<{ dayOfWeek: number; enabled: boolean; startTime: string; endTime: string }>
+    | undefined;
+
+  assert.equal(suggestions.length, 3);
+  assert.deepEqual(
+    workHoursPatch
+      ?.filter((rule) => rule.enabled)
+      .map((rule) => [rule.dayOfWeek, rule.startTime, rule.endTime]),
+    [
+      [1, "09:00", "17:00"],
+      [2, "09:00", "17:00"],
+      [3, "09:00", "17:00"],
+      [4, "09:00", "17:00"],
+      [5, "09:00", "17:00"],
+    ],
+  );
+  assert.deepEqual(suggestions[1]?.contextPatch.sleepWindow, {
+    startTime: "23:00",
+    endTime: "07:00",
+  });
+  assert.deepEqual(suggestions[2]?.contextPatch.noScheduleWindows, [
+    {
+      id: "derived-2-0800-1100",
+      dayOfWeek: 2,
+      startTime: "08:00",
+      endTime: "11:00",
+      label: "Class",
+    },
+  ]);
 });
 
 test("createDerivedSchedulingSuggestionsFromCandidates dedupes matching scoped candidates", async () => {
@@ -224,6 +377,134 @@ test("createDerivedSchedulingSuggestionsFromCandidates ignores temporary or low-
 
   assert.equal(suggestions.length, 0);
   assert.equal(db.insertedRows.length, 0);
+});
+
+test("buildCompiledSchedulingContext exposes suggested derived rules as tentative preferences", () => {
+  const compiled = buildCompiledSchedulingContext({
+    workHours: [],
+    noScheduleWindows: [],
+    sleepWindow: null,
+    maxWorkEndTime: null,
+    preferredFocusBlockMinutes: null,
+    preferredWorkPeriods: [],
+    recoveryDays: [],
+    additionalNotes: "",
+    activeRules: [
+      {
+        id: "rule-active",
+        kind: "custom",
+        title: "Prefer recovery after basketball",
+        detail: "Leave recovery space after basketball games.",
+        source: "derived",
+        strength: "soft_preference",
+        status: "active",
+        confidence: "medium",
+        contextPatch: {},
+        metadata: {},
+        createdAt: "2026-06-20T12:00:00.000Z",
+        updatedAt: "2026-06-20T12:00:00.000Z",
+      },
+    ],
+    tentativeRules: [
+      {
+        id: "rule-suggested",
+        kind: "custom",
+        title: "Prefer lighter schedule drafts",
+        detail: "Use more breathing room and buffers.",
+        source: "derived",
+        strength: "soft_preference",
+        status: "suggested",
+        confidence: "medium",
+        contextPatch: {},
+        metadata: {},
+        createdAt: "2026-06-20T12:00:00.000Z",
+        updatedAt: "2026-06-20T12:00:00.000Z",
+      },
+    ],
+    compiledSummary: "",
+    updatedAt: "2026-06-20T12:00:00.000Z",
+  });
+
+  assert.deepEqual(compiled.acceptedDerivedHabits, [
+    "Prefer recovery after basketball: Leave recovery space after basketball games.",
+  ]);
+  assert.deepEqual(compiled.tentativeDerivedPreferences, [
+    "Prefer lighter schedule drafts: Use more breathing room and buffers.",
+  ]);
+});
+
+test("getOrCreateUserSchedulingContext keeps concrete suggested availability tentative", async () => {
+  const db = new FakeSchedulingDb();
+  db.existingRows = [
+    {
+      id: "suggestion-1",
+      user_id: "user-1",
+      kind: "work_hours",
+      title: "Protect weekday work hours",
+      detail: "I work weekdays 9am-5pm.",
+      source: "derived",
+      strength: "hard_constraint",
+      status: "suggested",
+      confidence: "high",
+      context_patch: {
+        workHours: [
+          {
+            dayOfWeek: 1,
+            enabled: true,
+            startTime: "09:00",
+            endTime: "17:00",
+          },
+        ],
+      },
+      metadata: {},
+      created_at: new Date("2026-06-20T12:00:00.000Z"),
+      updated_at: new Date("2026-06-20T12:00:00.000Z"),
+    },
+  ];
+
+  const context = await getOrCreateUserSchedulingContext("user-1", db);
+  const compiled = buildCompiledSchedulingContext(context);
+
+  assert.deepEqual(context.activeRules.map((rule) => rule.id), []);
+  assert.deepEqual(
+    context.tentativeRules.map((rule) => [rule.kind, rule.title]),
+    [["work_hours", "Protect weekday work hours"]],
+  );
+  assert.deepEqual(compiled.tentativeDerivedPreferences, [
+    "Protect weekday work hours: I work weekdays 9am-5pm.",
+  ]);
+});
+
+test("dismissDerivedSchedulingSuggestion returns refreshed context without tentative rule", async () => {
+  const db = new FakeSchedulingDb();
+  db.existingRows = [
+    {
+      id: "suggestion-1",
+      user_id: "user-1",
+      kind: "custom",
+      title: "Prefer lighter schedule drafts",
+      detail: "Use more breathing room and buffers.",
+      source: "derived",
+      strength: "soft_preference",
+      status: "suggested",
+      confidence: "medium",
+      context_patch: {},
+      metadata: {},
+      created_at: new Date("2026-06-20T12:00:00.000Z"),
+      updated_at: new Date("2026-06-20T12:00:00.000Z"),
+    },
+  ];
+
+  const result = await dismissDerivedSchedulingSuggestion(
+    "user-1",
+    "suggestion-1",
+    db,
+  );
+
+  assert.equal(result.suggestion?.status, "dismissed");
+  assert.deepEqual(result.context.tentativeRules, []);
+  assert.equal(db.existingRows[0]?.status, "dismissed");
+  assert.equal(db.memoryUpsertCount, 1);
 });
 
 function parseJsonObject(value: unknown) {

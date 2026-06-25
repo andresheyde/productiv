@@ -5,6 +5,7 @@ import type {
   GoalMetricRecord,
   GoalRecord,
   MetricProgressEntryRecord,
+  TaskRecurrence,
   TaskRecord,
   WorkLogRecord,
 } from "../workspace/workspace.types.ts";
@@ -45,6 +46,7 @@ export type AssistantAction = {
   goalId: string | null;
   focusId: string | null;
   taskId: string | null;
+  occurrenceKey: string | null;
   metricId: string | null;
   title: string | null;
   definition: string | null;
@@ -58,6 +60,7 @@ export type AssistantAction = {
   targetValue: number | null;
   currentValue: number | null;
   dueAt: string | null;
+  recurrence: TaskRecurrence | null;
   estimatedMinutes: number | null;
   priorityRank: number | null;
   status: string | null;

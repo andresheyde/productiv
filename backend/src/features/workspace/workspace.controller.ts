@@ -17,6 +17,7 @@ import type {
   GoalRecord,
   GoalStatus,
   ScheduleIntent,
+  TaskRecurrence,
   TaskStatus,
 } from "./workspace.types.ts";
 
@@ -52,6 +53,7 @@ type PatchTaskBody = {
   status?: TaskStatus;
   estimatedMinutes?: number | null;
   dueAt?: string | null;
+  recurrence?: unknown;
   scheduleIntent?: ScheduleIntent;
 };
 
@@ -160,6 +162,7 @@ export async function updateTask(
       status: getOptionalTaskStatus(req.body.status),
       estimatedMinutes: getOptionalNullableNumber(req.body.estimatedMinutes),
       dueAt: parseOptionalDate(req.body.dueAt),
+      recurrence: getOptionalTaskRecurrence(req.body.recurrence),
       scheduleIntent: getOptionalScheduleIntent(req.body.scheduleIntent),
     });
 
@@ -372,6 +375,136 @@ function getOptionalGoalFocusAreas(value: unknown) {
       },
     ];
   });
+}
+
+function getOptionalTaskRecurrence(value: unknown): TaskRecurrence | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const frequency =
+    record.frequency === "daily" ||
+    record.frequency === "weekly" ||
+    record.frequency === "monthly" ||
+    record.frequency === "custom"
+      ? record.frequency
+      : null;
+
+  if (!frequency) {
+    return undefined;
+  }
+
+  const interval =
+    typeof record.interval === "number" &&
+    Number.isFinite(record.interval) &&
+    record.interval > 0
+      ? Math.max(1, Math.round(record.interval))
+      : 1;
+  const daysOfWeek = Array.isArray(record.daysOfWeek)
+    ? [
+        ...new Set(
+          record.daysOfWeek
+            .filter((day): day is number => Number.isInteger(day))
+            .map((day) => Math.trunc(day))
+            .filter((day) => day >= 0 && day <= 6),
+        ),
+      ].sort((left, right) => left - right)
+    : [];
+  const endsAt =
+    typeof record.endsAt === "string" && !Number.isNaN(Date.parse(record.endsAt))
+      ? new Date(record.endsAt).toISOString()
+      : null;
+
+  return {
+    frequency,
+    interval,
+    daysOfWeek,
+    endsAt,
+    sourceText: getOptionalTrimmedString(record.sourceText) ?? null,
+    scheduledOccurrences: getTaskScheduledOccurrences(record.scheduledOccurrences),
+  };
+}
+
+function getTaskScheduledOccurrences(
+  value: unknown,
+): TaskRecurrence["scheduledOccurrences"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const occurrences = value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+
+    const record = item as Record<string, unknown>;
+    const startTime = normalizeIsoString(record.startTime);
+    const endTime = normalizeIsoString(record.endTime);
+    const dateKey =
+      getOptionalDateKey(record.dateKey) ??
+      (startTime ? dateKeyFromIsoString(startTime) : null);
+
+    if (!dateKey || !startTime || !endTime) {
+      return [];
+    }
+
+    return [
+      {
+        dateKey,
+        startTime,
+        endTime,
+        calendarEventId: getOptionalTrimmedString(record.calendarEventId) ?? null,
+        sourceProposalId: getOptionalTrimmedString(record.sourceProposalId) ?? null,
+      },
+    ];
+  });
+  const seen = new Set<string>();
+
+  return occurrences.filter((occurrence) => {
+    const key = `${occurrence.dateKey}:${occurrence.calendarEventId ?? occurrence.startTime}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function getOptionalDateKey(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+function normalizeIsoString(value: unknown) {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    return null;
+  }
+
+  return new Date(value).toISOString();
+}
+
+function dateKeyFromIsoString(value: string) {
+  const date = new Date(value);
+
+  return [
+    date.getFullYear(),
+    (date.getMonth() + 1).toString().padStart(2, "0"),
+    date.getDate().toString().padStart(2, "0"),
+  ].join("-");
 }
 
 function createStableFocusId(title: string) {
